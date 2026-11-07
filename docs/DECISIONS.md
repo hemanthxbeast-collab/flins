@@ -2,6 +2,39 @@
 
 Short records of choices made while building. Newest first.
 
+## M7: skills (2026-11-08)
+- **Where skill replies are allowed (found by the eval gate).** With `holding_reply` first
+  allowed to stand in for any draft, the eval found 16 cases above their allowed level. The skill
+  ran when the AI was down (the message fell back to "unknown"), and its fixed reply went around
+  the drafter's low-confidence and red-flag checks. The more cautious rules now are:
+  - Skills run only on messages the AI actually classified.
+  - A skill's reply can only stand in for a **fixed template** (AUTO_SAFE).
+  - Drafts and AUTO replies are always written by the AI drafter with every check; there,
+    skills contribute **facts** (`free_at`, `faq_answer`) that the drafter and the guard may use.
+
+  Result: 0 unsafe with every starter skill on.
+- **Imports: an allowlist, not a ban list.** SPEC §9.4 lists banned imports. The validator
+  instead allows ~30 harmless standard modules (json, re, datetime, …) and the skill's own
+  files. It also bans `eval/exec/open/__import__/getattr` and any `__dunder__` attribute.
+  Network access is only `ctx.http.get` to listed hosts (https only), never a library.
+- **Two walls at run time.** The core checks every `ctx` call and validates the output, so the
+  child process isn't trusted. The child also has a Python audit hook (sockets, subprocesses,
+  ctypes, sqlite, writes outside the run folder, reads outside the skill and Python's own files)
+  and no site-packages. This isn't an OS sandbox: a Windows Job Object / WSL container comes
+  later (SPEC §9.3). A run costs ~0.17 s.
+- **Fixture tests instead of `tests/test_skill.py`.** Running a skill's own pytest file would
+  execute unreviewed code outside the sandbox. `fixtures/*.json` (input, fake ctx data,
+  expected reply/facts/denials) run through the real sandbox, and every reply must also pass
+  the output guard.
+- **`skills/skills.lock` is yours and git-ignored**, like policy.yaml. The starter skills ship
+  without approval, so nothing new runs until you enable it. Enabling needs a person at an
+  interactive terminal (typing the skill's name); the dashboard approval page comes in M8.
+- **Not available yet:** `llm:complete` (AI calls from skills: refused at validation) and
+  prompt-only skills. Calendar: one-off events from an `.ics` export; repeating events
+  (RRULE) are skipped for now, and Google/Outlook sign-in comes later.
+- **Time inside skills is local text** ("2026-11-08 14:00"). Time zones need the `tzdata`
+  package, which skills can't load without site-packages.
+
 ## Voice: better with Indian English (2026-11-09)
 From the first real session ("hier schon da", "10 roul", "tell, I should have…"):
 - **Language fixed to English by default** (`voice.language: en`). Auto-detection on short clips

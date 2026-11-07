@@ -1,0 +1,14 @@
+name: holding_reply
+version: 0.1.0
+author: claude
+description: Fixed holding reply while you're working, focusing or away.
+entrypoint: handler:run
+triggers:
+  categories: [greeting_smalltalk, availability_query, unknown]
+  modes: [WORKING, FOCUS, AWAY]
+permissions:
+  - wa:propose_reply
+  - contacts:read_card
+max_level: AUTO_SAFE
+timeout_s: 5
+network: []

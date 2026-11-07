@@ -1,0 +1,11 @@
+# Copy to config/faq.yaml (git-ignored) and write your own answers.
+# Used only by the faq_responder skill, and only after you enable it (`flins skills enable faq_responder`).
+# q: phrases people might use. a: your exact answer (written about you, FLINS sends it as your assistant).
+# tiers: who may get this answer. Unknown numbers never do.
+faq:
+  - q: ["office address", "where is the office", "office location"]
+    a: "the office is at <your office address>."
+    tiers: [trusted, inner]
+  - q: ["best time to call", "when can I call"]
+    a: "evenings after 7 usually work best for calls."
+    tiers: [inner, trusted, known]

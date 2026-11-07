@@ -1,0 +1,4 @@
+{
+  "input": {"messages": ["where are you"], "mode": "WORKING"},
+  "expect": {"no_reply": true}
+}

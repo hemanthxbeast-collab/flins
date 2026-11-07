@@ -1,0 +1,4 @@
+{
+  "input": {"messages": ["where are you??"], "mode": "AWAY", "until_local": "20:30"},
+  "expect": {"reply_contains": ["out right now", "20:30"]}
+}

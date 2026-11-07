@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0: M7 skills (2026-11-08)
+- Skills: small add-ons in `skills/<name>/` that suggest replies or add facts. They **can't
+  send** (there is no send permission), and each run is a fresh, locked-down Python process:
+  no network, no other programs, no access to `data/` or `.env`, no API keys, 8 s limit.
+- Every `ctx.*` call is checked against the skill's `flins.skill.yaml`. A call it didn't
+  declare is refused and written to the audit log.
+- `flins skills list | validate | test | enable | disable <name>`. `test` runs the skill's
+  fixtures in the sandbox and the 162-case safety eval with the skill on (0 unsafe needed).
+  `enable` shows what the skill may do and asks you to type its name. Approvals are pinned
+  by hash in `skills/skills.lock`: change any file and the skill stops until you approve again.
+- Five starter skills, all **off until you enable them**: `holding_reply`, `eta_reply`,
+  `availability_reply` (from a calendar `.ics` file), `faq_responder` (from `config/faq.yaml`),
+  `whats_missed` ("what did I miss?" grouped by person, urgent first).
+- Tests: 605 Python, 9 Node. Eval with each starter skill on: 0 unsafe.
+
 ## 0.6.1: Voice tuned for Indian English (2026-11-09)
 - English by default (no more clips misread as German), `accuracy: fast | balanced | best`
   (default balanced: small model + beam search, ~1.15 s on this laptop).

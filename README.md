@@ -153,6 +153,27 @@ answers:
 Out of the box the file is empty, so FLINS answers general questions and small talk but says
 nothing about your life. Restart `flins run` after editing it.
 
+## Skills
+Skills are small add-ons in `skills/<name>/`. They suggest replies or add facts, but they never send
+and can only lower what FLINS would do. Each one runs in a locked-down process with only the
+permissions its `flins.skill.yaml` lists. All are **off** until you enable them:
+
+```powershell
+uv run flins skills list                    # what's there and whether it's on
+uv run flins skills test holding_reply      # sandboxed fixtures + safety eval with it on
+uv run flins skills enable holding_reply    # shows its permissions; type the name to approve
+uv run flins skills disable holding_reply
+```
+
+Starter skills:
+- `holding_reply`: fixed holding text while you're working, focusing or away.
+- `eta_reply`: while you're away, answers "where are you?".
+- `availability_reply`: finds when you're free from a calendar `.ics` export (`skills.calendar_ics`).
+- `faq_responder`: answers only with what you wrote in `config/faq.yaml` (copy `faq.example.yaml`).
+- `whats_missed`: "what did I miss?", grouped by person, urgent first.
+
+If a skill's files change after you enabled it, it stops running until you enable it again.
+
 ## Dashboard
 `flins run` serves it at http://127.0.0.1:8765 (or run `uv run flins dashboard` on its own).
 Inbox with every decision and a "why?" page, drafts FLINS would send or is holding back,
@@ -178,4 +199,5 @@ npm --prefix wa-sidecar test
 ```
 
 ## Milestones
-See SPEC §14. Done: **M0**–**M6**. Next: **M7** (skills: calendar, "what did I miss", FAQ, in a sandbox).
+See SPEC §14. Done: **M0**–**M7**. Next: **M8** (Hermes builds skills through an MCP server; you
+review and approve them in the dashboard).

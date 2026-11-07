@@ -1,0 +1,11 @@
+{
+  "input": {"messages": ["are you free for a quick call today?"], "until_local": "18:00"},
+  "ctx": {
+    "calendar": [
+      {"start": "2026-11-08T13:00:00", "end": "2026-11-08T18:00:00"},
+      {"start": "2026-11-08T18:00:00", "end": "2026-11-08T19:15:00"},
+      {"start": "2026-11-08T19:30:00", "end": "2026-11-08T20:00:00"}
+    ]
+  },
+  "expect": {"facts": {"free_at": "20:00"}, "reply_contains": ["20:00", "calendar"]}
+}

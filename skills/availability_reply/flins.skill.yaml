@@ -1,0 +1,15 @@
+name: availability_reply
+version: 0.1.0
+author: claude
+description: Suggests when you're free today, from your calendar (.ics) file. Always a draft for approval.
+entrypoint: handler:run
+triggers:
+  categories: [availability_query, scheduling]
+  modes: []
+permissions:
+  - wa:propose_reply
+  - calendar:read
+  - contacts:read_card
+max_level: DRAFT
+timeout_s: 8
+network: []

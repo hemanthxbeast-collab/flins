@@ -1,0 +1,4 @@
+{
+  "input": {"messages": ["hi"], "mode": "NORMAL", "until_local": null},
+  "expect": {"no_reply": true}
+}

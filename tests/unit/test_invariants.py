@@ -46,3 +46,16 @@ def test_sidecar_keeps_phone_notifications_and_no_read_receipts() -> None:
     index = (SIDECAR_SRC / "index.ts").read_text(encoding="utf-8")
     assert "markOnlineOnConnect: false" in index
     assert "readMessages" not in index
+
+
+def test_skills_code_cannot_reach_the_sender() -> None:
+    """Invariant 8: the skill system never imports the WhatsApp adapter or the outbox."""
+    offenders = []
+    for path in (SRC / "skills").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if re.search(r"flins\.(adapters|core\.outbox)|send_text", text):
+            offenders.append(path.name)
+    for path in (REPO_ROOT / "skills").rglob("*.py"):
+        if re.search(r"send_text|wa:send", path.read_text(encoding="utf-8")):
+            offenders.append(path.as_posix())
+    assert offenders == []

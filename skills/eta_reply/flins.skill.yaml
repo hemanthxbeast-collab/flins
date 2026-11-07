@@ -1,0 +1,14 @@
+name: eta_reply
+version: 0.1.0
+author: claude
+description: Fixed "out right now, back around {until}" reply to where-are-you messages while away.
+entrypoint: handler:run
+triggers:
+  categories: [logistics_eta]
+  modes: [AWAY]
+permissions:
+  - wa:propose_reply
+  - contacts:read_card
+max_level: AUTO_SAFE
+timeout_s: 5
+network: []

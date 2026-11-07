@@ -40,6 +40,8 @@ from flins.llm.context import Line, render_conversation
 from flins.llm.gateway import LLMError, LLMGateway
 from flins.llm.services import Drafter, RedFlagChecker, Triager
 from flins.settings import AboutMe, ToneConfig
+from flins.skills.engine import SkillEngine
+from flins.skills.models import ContactCard, Proposal, SkillInput
 
 IDENTICAL_WINDOW = timedelta(minutes=10)
 THREAD_LINES = 10
@@ -61,7 +63,7 @@ class Brain:
 @dataclass(frozen=True)
 class DraftOutcome:
     text: str
-    source: str  # "template:<name>" | "llm"
+    source: str  # "template:<name>" | "llm" | "skill:<name>"
     confidence: float | None
     guard: GuardResult
     would_send: bool
@@ -82,6 +84,7 @@ class Pipeline:
         about: AboutMe | None = None,
         debounce: bool = False,
         rng: random.Random | None = None,
+        skills: SkillEngine | None = None,
     ) -> None:
         self._conn = conn
         self._bus = bus
@@ -94,6 +97,7 @@ class Pipeline:
         self._tones = tones or ToneConfig()
         self._about = about or AboutMe()
         self._rng = rng or random.Random()
+        self._skills = skills
         self._tz = ZoneInfo(policy.user.timezone)
         lim = policy.limits
         self._debouncer = (
@@ -299,9 +303,18 @@ class Pipeline:
             decision = replace(decision, warnings=[*decision.warnings, *notes])
 
         outcome: DraftOutcome | None = None
+        runs: list[int] = []
         if decision.level >= Level.DRAFT:
             decision, outcome = await self._draft(
-                decision, msgs, contact, state.until, mode, conversation, texts
+                decision,
+                msgs,
+                contact,
+                state.until,
+                mode,
+                conversation,
+                texts,
+                runs,
+                triaged=triage is not None,
             )
         auto = False
         if (
@@ -319,7 +332,7 @@ class Pipeline:
             else:
                 auto = True
         await self._record(
-            msgs, contact, mode.value, tier, decision, triage, llm_triage, outcome, now, auto
+            msgs, contact, mode.value, tier, decision, triage, llm_triage, outcome, now, auto, runs
         )
         return decision
 
@@ -361,6 +374,9 @@ class Pipeline:
         mode: Mode,
         conversation: str | None,
         texts: list[str],
+        runs: list[int] | None = None,
+        *,
+        triaged: bool = False,
     ) -> tuple[Decision, DraftOutcome | None]:
         tier = contact["tier"] if contact is not None else "unknown"
         disclose = bool(contact["disclose_ai"]) if contact is not None else True
@@ -369,6 +385,41 @@ class Pipeline:
         max_chars = int(str(tone.get("max_chars", 160)))
         facts = self._facts(mode, until, tier)
         signature = self._policy.user.signature if disclose else ""
+
+        # Skills (M7) add verified facts and may suggest a reply; they can only lower the level.
+        # They run only on a message the AI actually classified (never on the "unknown"
+        # fallback when triage failed). A skill's reply can only stand in for a fixed template
+        # (AUTO_SAFE). Drafts and AUTO replies are always written by the AI drafter, with all
+        # its checks; there the skill's facts (e.g. free_at) are what it contributes.
+        if self._skills is not None and triaged:
+            decision, proposal, skill_name, extra = await self._run_skills(
+                decision, msgs, contact, until, mode, texts, facts, signature, runs
+            )
+            facts = [*facts, *extra]
+            skill = self._skills.get(skill_name) if skill_name else None
+            if (
+                proposal is not None
+                and skill is not None
+                and skill.manifest is not None
+                and decision.level == Level.AUTO_SAFE
+                and skill.manifest.max_level >= Level.AUTO_SAFE
+            ):
+                cap = skill.manifest.max_level
+                decision = decision.with_ceiling("skill", cap, f"reply from {skill.name}")
+                return await self._skill_reply(
+                    decision,
+                    proposal,
+                    skill.name,
+                    contact,
+                    texts,
+                    facts,
+                    never,
+                    max_chars,
+                    signature,
+                    mode,
+                    conversation,
+                    msgs,
+                )
 
         # AUTO_SAFE: a fixed template. No LLM involved.
         if decision.level == Level.AUTO_SAFE and decision.template:
@@ -472,6 +523,146 @@ class Pipeline:
             text, "llm", out.confidence, guard, decision.level >= Level.AUTO_SAFE
         )
 
+    # ------------------------------------------------------------------ skills
+
+    async def _run_skills(
+        self,
+        decision: Decision,
+        msgs: list[aiosqlite.Row],
+        contact: aiosqlite.Row | None,
+        until: datetime | None,
+        mode: Mode,
+        texts: list[str],
+        facts: list[str],
+        signature: str,
+        runs: list[int] | None,
+    ) -> tuple[Decision, Proposal | None, str | None, list[str]]:
+        """Run the enabled skills for this category and mode. A failure just means no skill."""
+        assert self._skills is not None
+        skills = await self._skills.for_message(decision.category, mode)
+        if not skills:
+            return decision, None, None, []
+        now = self._clock.now()
+        base = SkillInput(
+            trigger="message",
+            messages=texts,
+            category=decision.category,
+            mode=mode.value,
+            until_local=self._local(until) if until is not None and mode in TIMED_MODES else None,
+            now_local=now.astimezone(self._tz).strftime("%Y-%m-%d %H:%M"),
+            timezone=self._policy.user.timezone,
+            user_name=self._policy.user.name,
+            signature=signature,
+            facts=facts,
+        )
+        card = None
+        if contact is not None:
+            card = ContactCard(
+                first_name=self._name(contact).split()[0],
+                tier=str(contact["tier"]),
+                language=str(contact["language"] or "en"),
+            )
+        provider = self._skills.db_provider(msgs[-1]["chat_jid"])
+        extra: list[str] = []
+        chosen: tuple[Proposal, str] | None = None
+        notes: list[str] = []
+        for skill in skills:
+            result, run_id = await self._skills.run(skill, base, provider, now=now, card=card)
+            if run_id is not None and runs is not None:
+                runs.append(run_id)
+            if result.denied:
+                notes.append(f"skill {skill.name}: denied {', '.join(result.denied)}")
+            if result.output is None:
+                notes.append(f"skill {skill.name} failed: {result.error}")
+                continue
+            out = result.output
+            extra += [f"{k}: {v}" for k, v in out.facts.items()]
+            notes += [
+                f"skill {skill.name}: {p.text[:120]}"
+                for p in out.proposals
+                if p.kind in ("note", "notify") and p.text
+            ]
+            reply = out.first("reply")
+            m = skill.manifest
+            if (
+                chosen is None
+                and reply is not None
+                and m is not None
+                and m.max_level >= Level.DRAFT
+            ):
+                chosen = (reply, skill.name)
+        if notes:
+            decision = replace(decision, warnings=[*decision.warnings, *notes])
+        if chosen is None:
+            return decision, None, None, extra
+        return decision, chosen[0], chosen[1], extra
+
+    async def _skill_reply(
+        self,
+        decision: Decision,
+        proposal: Proposal,
+        skill_name: str,
+        contact: aiosqlite.Row | None,
+        texts: list[str],
+        facts: list[str],
+        never: list[str],
+        max_chars: int,
+        signature: str,
+        mode: Mode,
+        conversation: str | None,
+        msgs: list[aiosqlite.Row],
+    ) -> tuple[Decision, DraftOutcome | None]:
+        """A skill's reply gets the same guard and red-flag checks as an AI draft."""
+        if decision.level < Level.DRAFT:
+            return decision, None
+        text = proposal.text.strip()
+        if decision.level >= Level.AUTO_SAFE and signature and signature not in text:
+            text = f"{text} {signature}"
+        first_name = self._name(contact).split()[0] if contact is not None else "there"
+        d = self._policy.drafting
+        guard = check(
+            GuardInput(
+                reply=text,
+                level=decision.level,
+                inbound_texts=texts,
+                facts=[*facts, signature, first_name],
+                never_mention=never,
+                max_chars=max(max_chars, 240),
+                confidence=proposal.confidence,
+                min_confidence_auto=d.min_confidence_auto,
+                min_confidence_draft=d.min_confidence_draft,
+                allow_links=self._policy.limits.allow_links_in_auto,
+                busy=mode in TIMED_MODES,
+            )
+        )
+        if not guard.ok:
+            assert guard.cap is not None
+            decision = decision.with_ceiling("guard", guard.cap, "; ".join(guard.failures))
+        if decision.level == Level.AUTO:
+            if self._brain is None or not d.redflag_check:
+                decision = decision.with_ceiling(
+                    "redflag", Level.DRAFT, "no second check available for an unreviewed send"
+                )
+            else:
+                conv = conversation or await self._conversation(msgs, contact)
+                try:
+                    rf = await self._brain.redflag.check(conversation=conv, reply=text)
+                    if not rf.safe:
+                        decision = decision.with_ceiling(
+                            "redflag", Level.DRAFT, f"red flag: {rf.reason[:120]}"
+                        )
+                except LLMError as exc:
+                    decision = decision.with_ceiling(
+                        "redflag", Level.DRAFT, f"red flag check failed: {exc}"
+                    )
+        return decision, DraftOutcome(
+            text,
+            f"skill:{skill_name}",
+            proposal.confidence,
+            guard,
+            decision.level >= Level.AUTO_SAFE,
+        )
+
     # ------------------------------------------------------------------ recording
 
     async def _record(
@@ -486,6 +677,7 @@ class Pipeline:
         outcome: DraftOutcome | None,
         now: datetime,
         auto: bool = False,
+        runs: list[int] | None = None,
     ) -> None:
         ts = to_iso(now)
         anchor = msgs[-1]
@@ -503,7 +695,8 @@ class Pipeline:
         cur = await self._conn.execute(
             "INSERT INTO decisions (burst_id, message_id, mode, contact_tier, hard_rule, triage, "
             "ceilings, final_level, action, category, flags, escalate, interrupt, prompt_version, "
-            "model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "model, skill, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 burst_id,
                 anchor["id"],
@@ -520,10 +713,19 @@ class Pipeline:
                 int(decision.interrupt),
                 self._brain.triager.prompt_version if llm_triage and self._brain else None,
                 "claude-haiku-5-5" if llm_triage else None,
+                outcome.source.removeprefix("skill:")
+                if outcome is not None and outcome.source.startswith("skill:")
+                else None,
                 ts,
             ),
         )
         decision_id = cur.lastrowid
+        if runs:
+            marks = ",".join("?" * len(runs))
+            await self._conn.execute(
+                f"UPDATE skill_runs SET burst_id = ?, decision_id = ? WHERE id IN ({marks})",
+                (burst_id, decision_id, *runs),
+            )
         approval_short_id: int | None = None
         if outcome is not None:
             cur = await self._conn.execute(

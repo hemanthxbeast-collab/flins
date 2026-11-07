@@ -39,6 +39,8 @@ from flins.core.modes import ModeEvent, ModeManager, TransitionError
 from flins.core.outbox import SELF_PREFIX, OutboxError, enqueue
 from flins.core.policy_schema import Policy
 from flins.llm.gateway import LLMError
+from flins.skills.engine import SkillEngine
+from flins.skills.models import SkillInput
 
 NO_APPROVALS = "Approvals only work while `flins run` is running."
 CONFIRM_FOR = timedelta(seconds=60)
@@ -116,8 +118,10 @@ class CommandRouter:
         *,
         intents: IntentParser | None = None,
         conn: aiosqlite.Connection | None = None,
+        skills: SkillEngine | None = None,
     ) -> None:
         self._modes = modes
+        self._skills = skills
         self._policy = policy
         self._clock = clock
         self._tz = ZoneInfo(policy.user.timezone)
@@ -192,6 +196,30 @@ class CommandRouter:
             action, now=now, channel=source, short_id=number, text=cmd.text
         )
 
+    async def summary(self) -> str:
+        """'What did I miss?': the whats_missed skill if you enabled it, else the debrief."""
+        if self._skills is not None:
+            skill = await self._skills.for_command("summary")
+            if skill is not None:
+                now = self._clock.now()
+                since = await self._modes.session_started_at()
+                fmt = "%Y-%m-%d %H:%M"
+                inp = SkillInput(
+                    trigger="command:summary",
+                    mode=self._modes.state.mode.value,
+                    now_local=now.astimezone(self._tz).strftime(fmt),
+                    since_local=since.astimezone(self._tz).strftime(fmt),
+                    timezone=self._policy.user.timezone,
+                    user_name=self._policy.user.name,
+                )
+                result, _ = await self._skills.run(
+                    skill, inp, self._skills.db_provider(None), now=now
+                )
+                note = result.output.first("note") if result.output else None
+                if note is not None:
+                    return note.text
+        return await self._modes.summary_text()
+
     # ------------------------------------------------------------------ Tier B
 
     def _confirm(self, source: str, question: str, run: Callable[[], Awaitable[str]]) -> str:
@@ -215,7 +243,7 @@ class CommandRouter:
             await self._modes.refresh()
             return await self._modes.status_text()
         if a == "summary":
-            return await self._modes.summary_text()
+            return await self.summary()
         if a == "pending":
             return await self._approval(ApprovalCommand("list"), source)
         if a == "reject" and intent.number:

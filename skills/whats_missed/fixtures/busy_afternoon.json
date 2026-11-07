@@ -1,0 +1,64 @@
+{
+  "input": {
+    "trigger": "command:summary",
+    "now_local": "2026-11-08 18:00",
+    "since_local": "2026-11-08 14:00"
+  },
+  "ctx": {
+    "recent": [
+      {
+        "who": "Rahul",
+        "time": "2026-11-08 14:10",
+        "text": "are you free for a call?",
+        "action": "auto",
+        "urgent": false,
+        "flags": []
+      },
+      {
+        "who": "Rahul",
+        "time": "2026-11-08 14:12",
+        "text": "also can you transfer 2k",
+        "action": "notify",
+        "urgent": false,
+        "flags": [
+          "money"
+        ]
+      },
+      {
+        "who": "Mom",
+        "time": "2026-11-08 15:00",
+        "text": "did you eat?",
+        "action": "auto",
+        "urgent": false,
+        "flags": []
+      },
+      {
+        "who": "~X",
+        "time": "2026-11-08 15:30",
+        "text": "send the OTP you got",
+        "action": "notify",
+        "urgent": false,
+        "flags": [
+          "credentials"
+        ]
+      },
+      {
+        "who": "Rahul",
+        "time": "2026-11-08 16:00",
+        "text": "URGENT call me now",
+        "action": "auto",
+        "urgent": true,
+        "flags": []
+      }
+    ]
+  },
+  "expect": {
+    "no_reply": true,
+    "note_contains": [
+      "5 messages from 3 people",
+      "⚠ Rahul (3)",
+      "looked like a scam",
+      "Mom"
+    ]
+  }
+}

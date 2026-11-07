@@ -79,12 +79,20 @@ class VoiceConfig(_Strict):
     silence_s: float = Field(default=0.9, gt=0.2, le=5)
 
 
+class SkillsConfig(_Strict):
+    enabled: bool = True  # master switch; each skill still needs `flins skills enable`
+    dir: Path = Path("skills")
+    calendar_ics: Path | None = None  # an .ics export of your calendar, for availability_reply
+    faq_file: Path = Path("config/faq.yaml")
+
+
 class AppConfig(_Strict):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
 
 
 class ToneProfile(_Strict):
@@ -189,6 +197,17 @@ class Settings:
     @property
     def db_path(self) -> Path:
         return self.data_dir / self.app.paths.db_file
+
+    def path(self, p: Path) -> Path:
+        return p if p.is_absolute() else self.root / p
+
+    @property
+    def skills_dir(self) -> Path:
+        return self.path(self.app.skills.dir)
+
+    @property
+    def skill_runs_dir(self) -> Path:
+        return self.data_dir / "skill_runs"
 
 
 def find_root(start: Path | None = None) -> Path:

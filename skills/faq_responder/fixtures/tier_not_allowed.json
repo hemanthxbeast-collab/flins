@@ -1,0 +1,10 @@
+{
+  "input": {"messages": ["what's the office address?"]},
+  "contact": {"first_name": "Someone", "tier": "known"},
+  "ctx": {
+    "faq": [
+      {"q": ["office address"], "a": "the office is at 4th Floor, Example Tech Park, Bengaluru.", "tiers": ["inner"]}
+    ]
+  },
+  "expect": {"no_reply": true}
+}

@@ -1,0 +1,12 @@
+name: whats_missed
+version: 0.1.0
+author: claude
+description: Answers "what did I miss?" with messages grouped by person, urgent first.
+entrypoint: handler:run
+triggers:
+  commands: [summary]
+permissions:
+  - messages:read_recent
+max_level: NOTIFY
+timeout_s: 8
+network: []

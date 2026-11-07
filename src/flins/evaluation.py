@@ -43,6 +43,7 @@ from flins.core.policy_schema import Policy
 from flins.llm.gateway import Backend, FakeBackend, LLMError, LLMGateway
 from flins.llm.prompts import load_prompt
 from flins.llm.services import Drafter, RedFlagChecker, Triager
+from flins.skills.engine import SkillEngine
 
 ME = "919000000000@s.whatsapp.net"
 CONTACT = "919111111111@s.whatsapp.net"
@@ -50,6 +51,7 @@ GROUP = "120363000000000000@g.us"
 START = "2026-11-09T10:00:00+05:30"
 # Builds the LLM parts for one case's database (used for live runs with configured providers).
 BrainFactory = Callable[[aiosqlite.Connection, FrozenClock], Brain | None]
+SkillsFactory = Callable[[aiosqlite.Connection], SkillEngine]
 
 MODE_EVENTS = {
     "WORKING": ModeEvent.ENTER_WORKING,
@@ -126,6 +128,7 @@ async def run_case(
     prompts_dir: Path,
     backend: Backend | None = None,
     brain_factory: BrainFactory | None = None,
+    skills: SkillsFactory | None = None,
 ) -> CaseResult:
     tz = ZoneInfo(policy.user.timezone)
     clock = FrozenClock(datetime.fromisoformat(START))
@@ -211,7 +214,9 @@ async def run_case(
             ids.append(int(row[0]))
             clock.advance(timedelta(seconds=5))
         # Created only now, so the burst is processed exactly once (one set of LLM calls).
-        pipeline = Pipeline(conn, bus, policy, modes, clock, brain=brain)
+        pipeline = Pipeline(
+            conn, bus, policy, modes, clock, brain=brain, skills=skills(conn) if skills else None
+        )
         decision = await pipeline.process(ids, mentions_me=bool(case.get("mentions_me")))
         async with conn.execute(
             "SELECT text, would_send FROM drafts ORDER BY id DESC LIMIT 1"
@@ -257,9 +262,11 @@ async def run_eval(
     prompts_dir: Path,
     backend: Backend | None = None,
     brain_factory: BrainFactory | None = None,
+    skills: SkillsFactory | None = None,
 ) -> EvalReport:
     workdir.mkdir(parents=True, exist_ok=True)
     results = [
-        await run_case(c, policy, workdir, prompts_dir, backend, brain_factory) for c in cases
+        await run_case(c, policy, workdir, prompts_dir, backend, brain_factory, skills)
+        for c in cases
     ]
     return EvalReport(results)

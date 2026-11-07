@@ -1,0 +1,5 @@
+{
+  "input": {"messages": ["can you lend me some money"]},
+  "ctx": {"faq": [{"q": ["office address"], "a": "the office is in Bengaluru.", "tiers": ["trusted"]}]},
+  "expect": {"no_reply": true}
+}

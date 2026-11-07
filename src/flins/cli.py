@@ -38,15 +38,14 @@ from flins.llm.admin import list_models, status_lines, test_routes
 from flins.llm.gateway import LLMError
 from flins.llm.prompts import PromptError, load_prompt
 from flins.settings import Settings, find_root, load_settings
+from flins.skills import admin as skills_admin
 from flins.web.app import create_app
-from flins.wiring import build_router, make_brain
+from flins.wiring import build_router, make_brain, make_skills
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
 # Commands that exist in the CLI but arrive in a later milestone.
-STUBS: dict[str, str] = {
-    "skills": "M7",
-}
+STUBS: dict[str, str] = {}
 
 SECRET_HINT = (
     "FLINS_WA_SECRET is missing or shorter than 32 characters. Add a line to .env, e.g.:\n"
@@ -325,6 +324,9 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
         clock = SystemClock()
         modes = await ModeManager.open(settings.db_path, bus, settings.policy, clock)
         ai = make_brain(settings, conn, clock)
+        skills = make_skills(settings, conn)
+        if skills is not None:
+            await skills.sync_db()
         pipeline = Pipeline(
             conn,
             bus,
@@ -335,6 +337,7 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
             tones=settings.tones,
             about=settings.about,
             debounce=True,
+            skills=skills,
         )
         approvals = ApprovalService(conn, settings.policy)
         outbox = OutboxWorker(conn, settings.policy, adapter, clock, bus)
@@ -343,7 +346,9 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
             if ai is not None
             else None
         )
-        router = CommandRouter(modes, settings.policy, clock, approvals, intents=intents, conn=conn)
+        router = CommandRouter(
+            modes, settings.policy, clock, approvals, intents=intents, conn=conn, skills=skills
+        )
         SelfChatCommands(conn, bus, router)
         notifier = SelfChatNotifier(conn, bus, settings.policy, clock, lambda: ingest.me)
         voice_loop = None
@@ -353,6 +358,12 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
         dashboard = _dashboard_server(settings)
         dashboard_task = asyncio.create_task(dashboard.serve())
         print(f"FLINS running. {await modes.status_text()}")
+        if skills is not None:
+            on = [s.name for s in skills.all() if s.runnable]
+            off = [s.name for s in skills.all() if s.status == "changed"]
+            print(f"Skills on: {', '.join(on) or 'none'} (flins skills list)")
+            if off:
+                print(f"Skills changed since approval, not running: {', '.join(off)}")
         print(f"Dashboard: http://127.0.0.1:{settings.app.network.dashboard_port}")
         if ai is None:
             missing = build_router(settings)[0].missing_roles()
@@ -669,6 +680,62 @@ def cmd_mode(root: Path | None, text: str) -> int:
     return asyncio.run(_mode_command(settings, text))
 
 
+def _ask_typed(what: list[str], word: str) -> bool:
+    """Enabling a skill needs a person at the keyboard: type its name to approve."""
+    print("\n".join(what))
+    if not sys.stdin.isatty():
+        print("Refusing: enabling a skill needs you at an interactive terminal.")
+        return False
+    try:
+        answer = input(f"Type {word!r} to approve, anything else to cancel: ")
+    except EOFError:
+        return False
+    return answer.strip() == word
+
+
+async def _skills(settings: Settings, action: str, name: str | None) -> int:
+    if action == "list":
+        print("\n".join(skills_admin.list_lines(settings)))
+        return 0
+    if not name:
+        print(f"Which skill? e.g. flins skills {action} holding_reply")
+        return 2
+    if action == "validate":
+        from flins.skills.lock import LOCK_FILE, SkillLock
+        from flins.skills.validator import validate
+
+        d = settings.skills_dir / name
+        if not (d / "flins.skill.yaml").is_file():
+            print(f"No skill called {name!r} in {settings.skills_dir}.")
+            return 1
+        report = validate(d, SkillLock(settings.skills_dir / LOCK_FILE))
+        print("\n".join(skills_admin.report_lines(report)))
+        return 0 if report.ok else 1
+    if action == "test":
+        ok, lines = await skills_admin.test_skill(settings, name)
+        print("\n".join(lines))
+        print("PASSED" if ok else "FAILED")
+        return 0 if ok else 1
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    try:
+        if action == "enable":
+            ok, lines = await skills_admin.enable_skill(settings, conn, name, _ask_typed)
+        else:
+            ok, lines = await skills_admin.disable_skill(settings, conn, name)
+    finally:
+        await conn.close()
+    print("\n".join(lines))
+    return 0 if ok else 1
+
+
+def cmd_skills(root: Path | None, action: str, name: str | None) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_skills(settings, action, name))
+
+
 def _stub(name: str) -> int:
     print(f"`flins {name}` is not built yet. It arrives in milestone {STUBS[name]}.")
     return 2
@@ -705,8 +772,14 @@ def build_parser() -> argparse.ArgumentParser:
     llm = sub.add_parser("llm", help="AI providers: status, test, models <provider>")
     llm.add_argument("action", nargs="?", default="status", choices=["status", "test", "models"])
     llm.add_argument("provider", nargs="?", default=None)
-    skills = sub.add_parser("skills", help="manage skills (M7)")
-    skills.add_argument("args", nargs="*")
+    sk = sub.add_parser("skills", help="skills: list, validate, test, enable, disable <name>")
+    sk.add_argument(
+        "action",
+        nargs="?",
+        default="list",
+        choices=["list", "validate", "test", "enable", "disable"],
+    )
+    sk.add_argument("name", nargs="?", default=None)
     return p
 
 
@@ -743,6 +816,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_eval(root, args.live, args.only, args.provider)
     if args.command == "llm":
         return cmd_llm(root, args.action, args.provider)
+    if args.command == "skills":
+        return cmd_skills(root, args.action, args.name)
     return _stub(args.command)
 
 

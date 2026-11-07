@@ -6,6 +6,11 @@ config/policy.yaml
 config/contacts.yaml
 config/tone_profiles.yaml
 config/about_me.yaml
+config/faq.yaml
+# Your skill approvals and Hermes' work in progress (M7/M8)
+skills/skills.lock
+skills/_incoming/
+skills/_requests/
 
 # Python
 __pycache__/

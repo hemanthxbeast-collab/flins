@@ -53,6 +53,14 @@ llm:
   #   together: {base_url: "https://api.together.xyz/v1", key_env: TOGETHER_API_KEY}
 
 # ---------------------------------------------------------------------------------------------
+# Skills (M7). Each skill still needs `flins skills enable <name>`.
+skills:
+  enabled: true                 # false = never run any skill
+  dir: skills
+  calendar_ics: null            # e.g. C:/Users/you/calendar.ics (for availability_reply)
+  faq_file: config/faq.yaml     # your answers (for faq_responder); see faq.example.yaml
+
+# ---------------------------------------------------------------------------------------------
 # Voice (M6). Install once: uv sync --extra voice. Then `flins run --voice`, or set enabled: true.
 # Press the hotkey, speak, and FLINS answers out loud. The speech model downloads the first
 # time (base ~140 MB, small ~460 MB).

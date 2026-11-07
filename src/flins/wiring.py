@@ -22,6 +22,7 @@ from flins.llm.providers import (
 )
 from flins.llm.services import Drafter, RedFlagChecker, Triager
 from flins.settings import Settings
+from flins.skills.engine import SkillEngine
 
 
 @dataclass
@@ -137,4 +138,19 @@ def make_brain(
         triager=Triager(gw, load_prompt(prompts, "triage"), list(policy.categories)),
         drafter=Drafter(gw, load_prompt(prompts, "draft")),
         redflag=RedFlagChecker(gw, load_prompt(prompts, "redflag")),
+    )
+
+
+def make_skills(settings: Settings, conn: aiosqlite.Connection) -> SkillEngine | None:
+    """The skill engine for a live run, or None if skills are switched off in flins.yaml."""
+    cfg = settings.app.skills
+    if not cfg.enabled:
+        return None
+    return SkillEngine(
+        settings.skills_dir,
+        settings.skill_runs_dir,
+        tz=ZoneInfo(settings.policy.user.timezone),
+        conn=conn,
+        faq_path=settings.path(cfg.faq_file),
+        calendar_path=settings.path(cfg.calendar_ics) if cfg.calendar_ics else None,
     )

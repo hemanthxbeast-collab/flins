@@ -1,0 +1,5 @@
+{
+  "input": {"messages": ["free now?"]},
+  "ctx": {},
+  "expect": {"no_reply": true}
+}

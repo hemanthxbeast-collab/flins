@@ -1,0 +1,15 @@
+name: faq_responder
+version: 0.1.0
+author: claude
+description: Drafts answers to common questions, using only the answers you wrote in config/faq.yaml.
+entrypoint: handler:run
+triggers:
+  categories: [info_request_simple, unknown]
+  modes: []
+permissions:
+  - wa:propose_reply
+  - faq:read
+  - contacts:read_card
+max_level: DRAFT
+timeout_s: 5
+network: []

@@ -1,0 +1,4 @@
+{
+  "input": {"messages": ["hey are you free?"], "mode": "WORKING", "until_local": "18:00"},
+  "expect": {"reply_contains": ["Rahul", "Hemanth", "18:00", "FLINS"], "reply_excludes": ["I'm"]}
+}
