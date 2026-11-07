@@ -29,6 +29,11 @@ from flins.core.events import EventBus
 from flins.core.levels import Level
 from flins.core.modes import ModeManager
 from flins.core.policy_schema import Policy
+from flins.settings import Settings
+from flins.skilldev.review import Reviewer
+from flins.skilldev.workspace import NAME, WorkspaceError
+from flins.skills.engine import SkillEngine
+from flins.skills.lock import LOCK_FILE, SkillLock
 
 TIERS = ["inner", "trusted", "known", "unknown", "blocked"]
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -48,11 +53,13 @@ def create_app(
     port: int,
     token: str | None = None,
     clock: Clock | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
     app = FastAPI(title="FLINS", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.token = token or secrets.token_urlsafe(24)
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     clk = clock or SystemClock()
+    reviewer = Reviewer(settings) if settings is not None else None
 
     @asynccontextmanager
     async def db() -> AsyncIterator[aiosqlite.Connection]:
@@ -90,9 +97,27 @@ def create_app(
             await modes.close()
 
     def page(request: Request, name: str, **ctx: Any) -> HTMLResponse:
+        waiting = reviewer.pending_count() if reviewer is not None else 0
         return TEMPLATES.TemplateResponse(
-            request, name, {"token": app.state.token, "msg": request.query_params.get("msg"), **ctx}
+            request,
+            name,
+            {
+                "token": app.state.token,
+                "msg": request.query_params.get("msg"),
+                "skills_waiting": waiting,
+                **ctx,
+            },
         )
+
+    def need_reviewer() -> Reviewer:
+        if reviewer is None:
+            raise HTTPException(status_code=404, detail="skills are not available here")
+        return reviewer
+
+    def skill_name(name: str) -> str:
+        if not NAME.match(name):
+            raise HTTPException(status_code=404, detail="no such skill")
+        return name
 
     # ------------------------------------------------------------------ pages
 
@@ -280,5 +305,77 @@ def create_app(
         finally:
             await modes.close()
         return RedirectResponse(f"/?msg={quote(reply or 'Not a command.')}", status_code=303)
+
+    # ------------------------------------------------------------------ skills (M8)
+
+    @app.get("/skills", response_class=HTMLResponse)
+    async def skills_page(request: Request) -> HTMLResponse:
+        r = need_reviewer()
+        assert settings is not None
+        engine = SkillEngine(
+            settings.skills_dir, settings.skill_runs_dir, tz=r.workspace_tz, conn=None
+        )
+        return page(
+            request,
+            "skills.html",
+            installed=engine.all(),
+            waiting=r.waiting(),
+            requests=r.workspace.requests(),
+            mode=await mode_text(),
+        )
+
+    @app.get("/skills/review/{name}", response_class=HTMLResponse)
+    async def skill_review(request: Request, name: str) -> Response:
+        r = need_reviewer()
+        try:
+            view = await r.view(skill_name(name))
+        except WorkspaceError as exc:
+            return RedirectResponse(f"/skills?msg={quote(str(exc))}", status_code=303)
+        return page(request, "skill_review.html", v=view, mode=await mode_text())
+
+    @app.post("/skills/review/{name}")
+    async def skill_decide(
+        name: str,
+        action: str = Form(...),
+        token: str = Form(...),
+        sha: str = Form(""),
+        note: str = Form(""),
+    ) -> RedirectResponse:
+        check_token(token)
+        r = need_reviewer()
+        name = skill_name(name)
+        async with db() as conn:
+            try:
+                if action == "approve":
+                    ok, msg = await r.approve(conn, name, sha)
+                    if not ok:
+                        return RedirectResponse(
+                            f"/skills/review/{name}?msg={quote(msg)}", status_code=303
+                        )
+                elif action == "reject":
+                    msg = await r.reject(conn, name, note)
+                else:
+                    raise HTTPException(status_code=400, detail="unknown action")
+            except WorkspaceError as exc:
+                msg = str(exc)
+        return RedirectResponse(f"/skills?msg={quote(msg)}", status_code=303)
+
+    @app.post("/skills/{name}/disable")
+    async def skill_disable(name: str, token: str = Form(...)) -> RedirectResponse:
+        check_token(token)
+        need_reviewer()
+        assert settings is not None
+        name = skill_name(name)
+        lock = SkillLock(settings.skills_dir / LOCK_FILE)
+        if lock.disable(name):
+            lock.save()
+            async with db() as conn:
+                await AuditLog(conn).record(
+                    "user", "skill.disabled", {"skill": name, "via": "dashboard"}
+                )
+            msg = f"Disabled {name}."
+        else:
+            msg = f"{name} isn't enabled."
+        return RedirectResponse(f"/skills?msg={quote(msg)}", status_code=303)
 
     return app

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block body %}
+<p><a href="/skills">← Skills</a></p>
+<div class="card">
+  <h2 style="margin-top:0">Review: {{ v.name }}
+    {% if v.report.manifest %}<span class="muted">{{ v.report.manifest.version }} by {{ v.report.manifest.author }}</span>{% endif %}</h2>
+  {% if v.report.manifest %}<p>{{ v.report.manifest.description }}</p>{% endif %}
+
+  {% if v.submission %}
+    <p class="muted">Hermes' summary (written by Hermes, not checked):</p>
+    <div class="draft">{{ v.submission.summary }}</div>
+    {% if not v.submission_current %}<p class="urgent">The files changed after Hermes submitted them. You're reviewing what's there now.</p>{% endif %}
+  {% else %}
+    <p class="muted">Not submitted by Hermes yet (work in progress).</p>
+  {% endif %}
+
+  <h3>What it may do</h3>
+  <ul>{% for line in v.permission_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% if v.report.needs_approval %}
+    <p><b>New compared with what you approved before{% if not v.installed %} (new skill){% endif %}:</b></p>
+    <ul>{% for n in v.report.needs_approval %}<li>{{ n }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  <h3>Checks (run now, on this PC)</h3>
+  {% if v.report.errors %}<ul>{% for e in v.report.errors %}<li class="urgent">{{ e }}</li>{% endfor %}</ul>
+  {% else %}<p class="lvl-auto">Valid.</p>{% endif %}
+  {% for w in v.report.warnings %}<p class="muted">Warning: {{ w }}</p>{% endfor %}
+  {% if v.fixtures %}
+  <table>
+    <tr><th>Test</th><th>Result</th><th>Reply</th></tr>
+    {% for f in v.fixtures %}
+    <tr><td>{{ f.name }}</td>
+        <td>{% if f.ok %}<span class="lvl-auto">pass</span>{% else %}<span class="urgent">FAIL</span><div class="muted">{{ f.problems|join("; ") }}</div>{% endif %}</td>
+        <td>{{ f.reply or "" }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <p class="muted">Approving also runs the 162-case safety eval with this skill on (takes a few seconds). It must show 0 unsafe.</p>
+
+  <h3>Changes ({{ "vs installed version" if v.installed else "new files" }})</h3>
+  <pre>{{ v.diff or "(no differences)" }}</pre>
+  <p class="muted">Files: {{ v.files|join(", ") }}</p>
+
+  <div class="row">
+    {% if v.can_approve %}
+    <form class="inline" method="post" action="/skills/review/{{ v.name }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="sha" value="{{ v.sha256 }}">
+      <button name="action" value="approve">Approve and enable</button>
+    </form>
+    {% else %}
+    <span class="muted">Can't approve until the checks pass.</span>
+    {% endif %}
+    <form class="inline" method="post" action="/skills/review/{{ v.name }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="text" name="note" placeholder="Note for Hermes (why / what to change)" size="40">
+      <button class="danger" name="action" value="reject">Reject</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

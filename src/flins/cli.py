@@ -168,8 +168,29 @@ def cmd_doctor(root: Path | None) -> int:
         "FLINS_WA_SECRET set" if s.flins_wa_secret else "FLINS_WA_SECRET not set (needed from M1)",
     )
 
+    wsl = wsl_networking_warning(Path.home() / ".wslconfig")
+    if wsl:
+        _line(WARN, wsl)
+
     print("result:", "problems found" if failed else "healthy")
     return 1 if failed else 0
+
+
+def wsl_networking_warning(path: Path) -> str | None:
+    """Hermes (M8) must not reach Windows' 127.0.0.1, where the dashboard runs. WSL's mirrored
+    networking would let it."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        key, _, value = line.split("#")[0].partition("=")
+        if key.strip().lower() == "networkingmode" and value.strip().lower() == "mirrored":
+            return (
+                f"{path}: networkingMode=mirrored lets WSL (Hermes) reach the dashboard. "
+                "Use the default NAT mode (see docs/HERMES.md)"
+            )
+    return None
 
 
 def _load(root: Path | None) -> Settings | None:
@@ -347,7 +368,14 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
             else None
         )
         router = CommandRouter(
-            modes, settings.policy, clock, approvals, intents=intents, conn=conn, skills=skills
+            modes,
+            settings.policy,
+            clock,
+            approvals,
+            intents=intents,
+            conn=conn,
+            skills=skills,
+            skill_requests=settings.skills_dir / "_incoming",
         )
         SelfChatCommands(conn, bus, router)
         notifier = SelfChatNotifier(conn, bus, settings.policy, clock, lambda: ingest.me)
@@ -456,7 +484,7 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
 
 def _dashboard_server(settings: Settings) -> uvicorn.Server:
     port = settings.app.network.dashboard_port
-    app = create_app(settings.db_path, settings.policy, port=port)
+    app = create_app(settings.db_path, settings.policy, port=port, settings=settings)
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
     return uvicorn.Server(config)
 
@@ -736,6 +764,19 @@ def cmd_skills(root: Path | None, action: str, name: str | None) -> int:
     return asyncio.run(_skills(settings, action, name))
 
 
+def cmd_skilldev(root: Path | None, incoming: Path | None) -> int:
+    """stdout belongs to the MCP protocol: never print here. It reads no personal config."""
+    from flins.skilldev.server import serve_stdio
+
+    try:
+        project = root or find_root()
+    except FileNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    asyncio.run(serve_stdio(project, incoming.resolve() if incoming else None))
+    return 0
+
+
 def _stub(name: str) -> int:
     print(f"`flins {name}` is not built yet. It arrives in milestone {STUBS[name]}.")
     return 2
@@ -780,6 +821,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["list", "validate", "test", "enable", "disable"],
     )
     sk.add_argument("name", nargs="?", default=None)
+    dev = sub.add_parser(
+        "skilldev", help="MCP server (stdio) for Hermes to build skills in skills/_incoming"
+    )
+    dev.add_argument(
+        "--incoming",
+        type=Path,
+        default=None,
+        help="the shared _incoming folder (default: skills/_incoming)",
+    )
     return p
 
 
@@ -818,6 +868,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_llm(root, args.action, args.provider)
     if args.command == "skills":
         return cmd_skills(root, args.action, args.name)
+    if args.command == "skilldev":
+        return cmd_skilldev(root, args.incoming)
     return _stub(args.command)
 
 

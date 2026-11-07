@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0: M8 Hermes builds skills, you approve them (2026-11-08)
+- `flins skilldev`: an MCP server (official `mcp` SDK, stdio) for Hermes Agent: read the skill
+  spec and examples, scaffold, write files, validate, test and submit skills. Writes are confined
+  to `skills/_incoming/<name>/`. There's no tool to enable a skill or to reach your data.
+- Dashboard **Skills** page: installed skills (with Disable), skills waiting for review, and your
+  requests. The review page shows what a skill may do, what's new since your last approval, the
+  diff and test results, all re-run on Windows. **Approve and enable** re-runs the safety eval,
+  installs the skill and pins it; **Reject** leaves a note for Hermes.
+- "Make a skill that …" by voice or self-chat saves a request for Hermes.
+- `docs/HERMES.md`: running Hermes in WSL2 with no Windows drives, no Windows programs, NAT
+  networking and its messaging gateways off. `flins doctor` warns if WSL uses mirrored networking.
+- Tests: 639 Python, 9 Node.
+
 ## 0.7.0: M7 skills (2026-11-08)
 - Skills: small add-ons in `skills/<name>/` that suggest replies or add facts. They **can't
   send** (there is no send permission), and each run is a fresh, locked-down Python process:

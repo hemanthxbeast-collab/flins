@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 style="margin-top:0">Skills</h2>
+<p class="muted">Skills suggest replies or add facts. They never send, and only you can switch one on.</p>
+
+<h3>Waiting for your review</h3>
+{% if waiting %}
+  {% for w in waiting %}
+  <div class="card">
+    <b>{{ w.name }}</b>
+    {% if w.review %}<span class="chip">{{ w.review.status }}</span>{% endif %}
+    {% if not w.current %}<span class="chip">changed since it was submitted</span>{% endif %}
+    <span class="muted">· submitted {{ w.submitted_at[:16] }}</span>
+    <div class="muted" style="margin:6px 0">Hermes says: {{ w.summary }}</div>
+    {% if w.review and w.review.note %}<div class="muted">Your note: {{ w.review.note }}</div>{% endif %}
+    <a href="/skills/review/{{ w.name }}">Review →</a>
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="muted">Nothing waiting.</p>
+{% endif %}
+
+<h3>Installed</h3>
+<table>
+  <tr><th>Skill</th><th>Version</th><th>Status</th><th>Runs for</th><th></th></tr>
+  {% for s in installed %}
+  <tr>
+    <td><b>{{ s.name }}</b>{% if s.manifest %}<div class="muted">{{ s.manifest.description }}</div>{% endif %}</td>
+    <td>{{ s.manifest.version if s.manifest else "?" }}</td>
+    <td>{{ s.status }}{% if s.problem %}<div class="muted">{{ s.problem }}</div>{% endif %}</td>
+    <td>{% if s.manifest %}{{ (s.manifest.triggers.categories + s.manifest.triggers.commands)|join(", ") }}{% endif %}</td>
+    <td>
+      {% if s.status == "enabled" %}
+      <form class="inline" method="post" action="/skills/{{ s.name }}/disable">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button class="danger">Disable</button>
+      </form>
+      {% elif s.status in ("not approved", "disabled", "changed") %}
+      <span class="muted">enable with: flins skills enable {{ s.name }}</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">No skills installed.</td></tr>
+  {% endfor %}
+</table>
+
+<h3>Your requests for Hermes</h3>
+{% if requests %}
+  <ul>{% for r in requests %}<li><span class="muted">{{ r.id }}</span> {{ r.title }}</li>{% endfor %}</ul>
+{% else %}
+  <p class="muted">None. Say "make a skill that …" by voice or in your self-chat.</p>
+{% endif %}
+{% endblock %}

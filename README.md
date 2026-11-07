@@ -174,6 +174,11 @@ Starter skills:
 
 If a skill's files change after you enabled it, it stops running until you enable it again.
 
+Hermes Agent can build new skills for you through `flins skilldev` (an MCP server). You review and
+approve them on the dashboard's **Skills** page. Setup, with the WSL isolation it needs:
+[docs/HERMES.md](docs/HERMES.md). You can also say "make a skill that …" to FLINS to leave
+Hermes a request.
+
 ## Dashboard
 `flins run` serves it at http://127.0.0.1:8765 (or run `uv run flins dashboard` on its own).
 Inbox with every decision and a "why?" page, drafts FLINS would send or is holding back,
@@ -199,5 +204,5 @@ npm --prefix wa-sidecar test
 ```
 
 ## Milestones
-See SPEC §14. Done: **M0**–**M7**. Next: **M8** (Hermes builds skills through an MCP server; you
-review and approve them in the dashboard).
+See SPEC §14. Done: **M0**–**M8**. Next: **M9** (automatic free-form replies for chosen contacts
+after enough approved drafts, tone learning, wake word, autostart, backups).

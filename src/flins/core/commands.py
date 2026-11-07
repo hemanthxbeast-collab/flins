@@ -7,9 +7,11 @@ change mode, approve) is read back first and waits for "yes".
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -39,6 +41,7 @@ from flins.core.modes import ModeEvent, ModeManager, TransitionError
 from flins.core.outbox import SELF_PREFIX, OutboxError, enqueue
 from flins.core.policy_schema import Policy
 from flins.llm.gateway import LLMError
+from flins.skilldev.workspace import write_request
 from flins.skills.engine import SkillEngine
 from flins.skills.models import SkillInput
 
@@ -104,6 +107,14 @@ class _FollowUp:
     text: str | None = None  # "contact": the message waiting for a recipient
 
 
+# "make a skill that replies to Mom's 'did you eat' with a warm message" (SPEC §10b)
+SKILL_REQUEST = re.compile(
+    r"^(?:hey flins,?\s*)?(?:please\s+)?(?:can you\s+)?(?:make|create|build|write)\s+"
+    r"(?:me\s+)?an?\s+(?:new\s+)?skill\s+(?:that|which|to|for|so that)\s+(.{6,})$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
 def _plain(text: str) -> str:
     return " ".join(text.lower().strip().strip(".!?").split())
 
@@ -119,9 +130,11 @@ class CommandRouter:
         intents: IntentParser | None = None,
         conn: aiosqlite.Connection | None = None,
         skills: SkillEngine | None = None,
+        skill_requests: Path | None = None,
     ) -> None:
         self._modes = modes
         self._skills = skills
+        self._requests_dir = skill_requests  # skills/_incoming: requests for Hermes (M8)
         self._policy = policy
         self._clock = clock
         self._tz = ZoneInfo(policy.user.timezone)
@@ -151,6 +164,15 @@ class CommandRouter:
             if command is None or isinstance(command, ParseError):
                 return await self._answer(follow, text, source)
             # A clear command ("stop", "status", ...) wins over the open question.
+
+        wish = SKILL_REQUEST.match(text.strip())
+        if wish is not None and self._requests_dir is not None:
+            body = wish.group(1).strip().rstrip(".")
+            write_request(self._requests_dir, f"Make a skill that {body}", source, now)
+            return (
+                f'Saved a skill request for Hermes: "{body}". When it is built, it will wait '
+                "for your review on the dashboard's Skills page."
+            )
 
         cmd = parse(text, now=now, tz=self._tz)
         if cmd is None:

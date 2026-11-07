@@ -86,6 +86,10 @@ class Report:
         return not self.errors
 
 
+def _is_link(p: Path) -> bool:
+    return p.is_symlink() or bool(getattr(p, "is_junction", lambda: False)())
+
+
 def _local_modules(skill_dir: Path) -> set[str]:
     return {p.stem for p in skill_dir.glob("*.py")}
 
@@ -172,6 +176,10 @@ def validate(skill_dir: Path, lock: SkillLock | None = None, *, lint: bool = Tru
         return report
     report.manifest = manifest
     _skill_md(skill_dir, manifest.name, report)
+    links = [p for p in skill_dir.rglob("*") if _is_link(p)]
+    if _is_link(skill_dir) or links:
+        report.errors.append("links (symlinks/junctions) are not allowed in a skill")
+        return report
 
     local = _local_modules(skill_dir)
     entry = skill_dir / f"{manifest.module}.py"

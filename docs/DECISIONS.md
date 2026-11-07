@@ -2,6 +2,31 @@
 
 Short records of choices made while building. Newest first.
 
+## M8: Hermes and skill review (2026-11-08)
+- **The dashboard token doesn't stop local programs.** Any program that can reach
+  127.0.0.1:8765 can read the page, take the token and approve drafts or skills. WSL interop
+  (`flins.exe` through `/mnt/c`) and the mounted `C:` drive (`.env`, `data/`) are the same kind
+  of hole. So Hermes runs in WSL with drives off, interop off, default NAT networking (no
+  route to Windows' 127.0.0.1) and only `skills/_incoming` mounted. `flins doctor` warns about
+  `networkingMode=mirrored`. This is the cautious reading of invariant 9; SPEC §10 only said
+  "in WSL2".
+- **So the MCP server runs inside WSL** (a copy of the repo), over stdio, not as a Windows
+  network service on `skilldev_port`. It never opens `data/` or your config, and its safety
+  eval uses `config/policy.example.yaml`. The port setting stays unused for now.
+- **Submissions are files** (`_incoming/_submissions/<name>.json`), not database rows: the
+  WSL side has no database. They're Hermes' claims. The dashboard shows the summary marked as
+  unchecked and re-runs validation, fixtures and (on approve) the eval with **your** policy.
+- **Approval is tied to a hash.** The review page carries the hash of the files you saw.
+  Approve refuses if the folder changed since (Hermes can edit the shared folder directly),
+  re-checks after the eval, and checks the installed copy matches. Any edit through the tools
+  withdraws a submission.
+- **Requests** go to `_incoming/_requests/` (so the one shared folder is enough), not
+  `skills/_requests/` as in SPEC §10.
+- **The `mcp` SDK is 2.x** (`MCPServer`, formerly FastMCP). Refusals are raised as `ToolError`
+  so Hermes sees the reason.
+- Web search wasn't available while writing `docs/HERMES.md`, so Hermes-specific key names are
+  marked as "check your Hermes version's MCP docs"; the command line given is what matters.
+
 ## M7: skills (2026-11-08)
 - **Where skill replies are allowed (found by the eval gate).** With `holding_reply` first
   allowed to stand in for any draft, the eval found 16 cases above their allowed level. The skill

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,10 +11,10 @@ import aiosqlite
 
 from flins.core.audit import AuditLog
 from flins.core.clock import to_iso
-from flins.evaluation import load_cases, run_eval
 from flins.settings import Settings
-from flins.skills.engine import FixtureResult, Skill, SkillEngine, run_fixtures
-from flins.skills.lock import LOCK_FILE, SkillLock, hash_skill
+from flins.skills.checks import CheckResult, check_skill
+from flins.skills.engine import Skill, SkillEngine
+from flins.skills.lock import LOCK_FILE, SkillLock
 from flins.skills.validator import Report, validate
 
 Confirm = Callable[[list[str], str], bool]  # (what you're approving, the word to type) -> ok
@@ -48,7 +47,11 @@ def list_lines(settings: Settings) -> list[str]:
         extra = f" ({s.problem})" if s.problem else ""
         out.append(f"  {s.name:<20} {version:<7} {s.status:<13}{trig}{extra}")
     incoming = settings.skills_dir / "_incoming"
-    waiting = sorted(d.name for d in incoming.iterdir() if d.is_dir()) if incoming.is_dir() else []
+    waiting = (
+        sorted(d.name for d in incoming.iterdir() if d.is_dir() and not d.name.startswith("_"))
+        if incoming.is_dir()
+        else []
+    )
     if waiting:
         out.append(f"  waiting in _incoming: {', '.join(waiting)}")
     return out
@@ -72,64 +75,42 @@ def _skill_dir(settings: Settings, name: str) -> Path | None:
 async def test_skill(settings: Settings, name: str) -> tuple[bool, list[str]]:
     """Validate, run the fixtures in the sandbox, then the safety eval with the skill switched
     on (recorded AI answers). Passing needs all three, and 0 unsafe in the eval."""
+    result = await _check(settings, name)
+    if result is None:
+        return False, [f"No skill called {name!r} in {settings.skills_dir}."]
+    return result.ok, result.lines()
+
+
+async def _check(settings: Settings, name: str) -> CheckResult | None:
     d = _skill_dir(settings, name)
     if d is None:
-        return False, [f"No skill called {name!r} in {settings.skills_dir}."]
-    lock = SkillLock(settings.skills_dir / LOCK_FILE)
-    report = validate(d, lock)
-    lines = report_lines(report)
-    if not report.ok or report.manifest is None:
-        return False, lines
-    manifest = report.manifest
-    fixtures: list[FixtureResult] = await run_fixtures(d, manifest, settings.skill_runs_dir)
-    for f in fixtures:
-        status = "pass" if f.ok else "FAIL"
-        lines.append(f"  fixture {f.name}: {status} ({f.ms} ms)")
-        lines += [f"    {p}" for p in f.problems]
-    ok = all(f.ok for f in fixtures)
-    if not manifest.triggers.categories:
-        lines.append("  eval: skipped (this skill doesn't answer messages)")
-        return ok, lines
-
-    # The shared eval set, with only this skill enabled (in a throwaway lock, never saved).
-    with tempfile.TemporaryDirectory() as tmp:
-        trial = SkillLock(Path(tmp) / LOCK_FILE)
-        trial.approve(manifest, hash_skill(d), to_iso(datetime.now(UTC)))
-        engines: list[SkillEngine] = []
-
-        def factory(conn: aiosqlite.Connection) -> SkillEngine:
-            e = SkillEngine(
-                settings.skills_dir,
-                settings.skill_runs_dir,
-                tz=ZoneInfo(settings.policy.user.timezone),
-                conn=conn,
-                lock=trial,
-            )
-            engines.append(e)
-            return e
-
-        cases = load_cases(settings.root / "tests" / "eval" / "whatsapp_cases.jsonl")
-        result = await run_eval(
-            cases, settings.policy, settings.data_dir / "eval", settings.prompts_dir, skills=factory
-        )
-    ran = sum(e.runs_started for e in engines)
-    lines.append(f"  eval: {len(cases)} cases, skill ran in {ran}, {len(result.unsafe)} unsafe")
-    for r in result.unsafe[:5]:
-        lines.append(f"    unsafe: {r.id}: {'; '.join(r.unsafe)}")
-    return ok and not result.unsafe, lines
+        return None
+    return await check_skill(
+        d,
+        lock=SkillLock(settings.skills_dir / LOCK_FILE),
+        policy=settings.policy,
+        prompts_dir=settings.prompts_dir,
+        cases_path=settings.root / "tests" / "eval" / "whatsapp_cases.jsonl",
+        runs_dir=settings.skill_runs_dir,
+    )
 
 
 async def enable_skill(
     settings: Settings, conn: aiosqlite.Connection, name: str, confirm: Confirm
 ) -> tuple[bool, list[str]]:
-    ok, lines = await test_skill(settings, name)
-    if not ok:
+    checked = await _check(settings, name)
+    if checked is None:
+        return False, [f"No skill called {name!r} in {settings.skills_dir}."]
+    lines = checked.lines()
+    if not checked.ok:
         return False, [*lines, "Not enabled: fix the problems above first."]
     d = _skill_dir(settings, name)
     assert d is not None
     lock = SkillLock(settings.skills_dir / LOCK_FILE)
     report = validate(d, lock, lint=False)
     assert report.manifest is not None and report.sha256 is not None
+    if report.sha256 != checked.report.sha256:
+        return False, [*lines, "Not enabled: its files changed while it was being tested."]
     m = report.manifest
     what = [f"Enable {m.name} {m.version} by {m.author}. It may:", *m.summary_lines()]
     if report.needs_approval:
