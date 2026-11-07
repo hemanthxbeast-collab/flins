@@ -51,3 +51,18 @@ llm:
   # providers:
   #   ollama: {base_url: "http://localhost:11434/v1"}
   #   together: {base_url: "https://api.together.xyz/v1", key_env: TOGETHER_API_KEY}
+
+# ---------------------------------------------------------------------------------------------
+# Voice (M6). Install once: uv sync --extra voice. Then `flins run --voice`, or set enabled: true.
+# Press the hotkey, speak, and FLINS answers out loud. The speech model downloads the first
+# time (base ~140 MB, small ~460 MB).
+voice:
+  enabled: false
+  hotkey: "<ctrl>+<alt>+<space>"
+  stt_model: base         # base: ~0.7 s per command on a laptop CPU. small: ~2 s, better Hinglish
+  stt_device: cpu         # cuda = NVIDIA GPU (needs CUDA 12 + cuDNN installed)
+  language: null          # null = detect automatically
+  tts: sapi               # sapi = Windows voices, print = show text only
+  tts_voice: null         # e.g. "Zira", "David", "Heera" (see: uv run flins voice voices)
+  tts_rate: 185
+  speak_alerts: true      # say urgent alerts, expiry warnings and the summary out loud

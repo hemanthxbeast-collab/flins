@@ -1,6 +1,6 @@
 [project]
 name = "flins"
-version = "0.5.0"
+version = "0.6.0"
 description = "FLINS: local-first personal voice + WhatsApp assistant"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +17,16 @@ dependencies = [
     "httpx>=0.27",  # OpenAI-compatible LLM providers (Gemini, Groq, NVIDIA, ...)
     "uvicorn>=0.30",
     "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+# M6 voice. Install with: uv sync --extra voice
+voice = [
+    "sounddevice>=0.4.6",
+    "numpy>=1.26",
+    "faster-whisper>=1.0",
+    "pyttsx3>=2.90",
+    "pynput>=1.7",
 ]
 
 [project.scripts]
@@ -53,6 +63,11 @@ python_version = "3.12"
 mypy_path = "src"
 packages = ["flins"]
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+# Voice libraries ship without type information.
+module = ["sounddevice", "pynput", "pynput.*", "pyttsx3", "faster_whisper", "ctranslate2"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["flins.core.*", "flins.settings"]

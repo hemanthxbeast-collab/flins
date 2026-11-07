@@ -3,9 +3,21 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** Milestone M5. In a busy mode FLINS sends your **holding reply by itself** to close
-contacts, drafts real answers for everything else (sent when you approve), and talks to you in
-your WhatsApp **"Message yourself"** chat.
+**Status:** Milestone M6. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+answers when you approve) and you can **talk to it**: by voice, or in plain words in your
+"Message yourself" chat.
+
+## Voice
+```powershell
+uv sync --extra voice           # once
+uv run flins voice test         # checks the mic and speech model, shows the timing
+uv run flins run --voice        # FLINS + push-to-talk
+```
+Press **Ctrl+Alt+Space**, wait for the beep, speak. It stops listening when you stop talking.
+Examples: *"I'm in working mood till 6"*, *"what did I miss?"*, *"approve number three"*,
+*"tell Radhika I'll call her at 8"*, *"stop"*. Anything that would send a message or change the
+mode is read back first; say **yes** or **no**. The same plain-language commands work typed in your
+self-chat. Settings live under `voice:` in `config/flins.yaml` (model, voice, hotkey, alerts).
 
 ## Sending
 Sending stays off until you turn it on yourself in `config/policy.yaml`:
@@ -161,4 +173,4 @@ npm --prefix wa-sidecar test
 ```
 
 ## Milestones
-See SPEC §14. Done: **M0**–**M5**. Next: **M6** (voice: push-to-talk, speech-to-text, spoken replies).
+See SPEC §14. Done: **M0**–**M6**. Next: **M7** (skills: calendar, "what did I miss", FAQ, in a sandbox).

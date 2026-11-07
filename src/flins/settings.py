@@ -60,11 +60,26 @@ class LLMConfig(_Strict):
     )
 
 
+class VoiceConfig(_Strict):
+    enabled: bool = False  # or start with `flins run --voice`
+    hotkey: str = "<ctrl>+<alt>+<space>"
+    stt_model: str = "base"  # faster-whisper: tiny, base, small, medium, large-v3
+    stt_device: Literal["cpu", "cuda", "auto"] = "cpu"  # cuda needs NVIDIA's CUDA 12 libraries
+    language: str | None = None  # None = detect (works for English, Hindi, Telugu, mixes)
+    tts: Literal["sapi", "print"] = "sapi"  # sapi = Windows voices; print = text only
+    tts_voice: str | None = None  # part of a Windows voice name, e.g. "Zira" or "Heera"
+    tts_rate: int = Field(default=185, ge=80, le=400)
+    speak_alerts: bool = True  # say urgent alerts, expiry warnings and the summary out loud
+    max_record_s: float = Field(default=12.0, gt=1, le=60)
+    silence_s: float = Field(default=0.9, gt=0.2, le=5)
+
+
 class AppConfig(_Strict):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
 
 
 class ToneProfile(_Strict):

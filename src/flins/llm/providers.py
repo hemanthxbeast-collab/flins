@@ -22,6 +22,8 @@ from flins.llm.prompts import Prompt
 
 JsonMode = Literal["json_schema", "json_object", "prompt"]
 ROLES = ("triage", "draft", "redflag")
+# Jobs without their own route list borrow another job's providers.
+ROLE_FALLBACK = {"intent": "triage"}
 
 
 @dataclass(frozen=True)
@@ -271,7 +273,9 @@ class ConfiguredRouter:
 
     def chain(self, prompt: Prompt) -> list[Attempt]:
         out = []
-        for r in self._routes.get(self.role_of(prompt), []):
+        role = self.role_of(prompt)
+        routes = self._routes.get(role) or self._routes.get(ROLE_FALLBACK.get(role, ""), [])
+        for r in routes:
             backend = self._backends.get(r.provider)
             if backend is not None:
                 out.append(Attempt(backend, replace(prompt, model=r.model), r.provider, r.price))

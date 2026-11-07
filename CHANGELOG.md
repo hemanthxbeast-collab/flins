@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0: M6 voice and natural-language commands (2026-11-09)
+- Push-to-talk (Ctrl+Alt+Space): speak a command, FLINS answers out loud. Local speech-to-text
+  (faster-whisper `base`, ~0.7 s per command on CPU) and Windows voices for speech.
+- Speaks urgent alerts, expiry warnings and the session summary (`voice.speak_alerts`).
+- Natural-language commands by voice and in the self-chat: "tell Radhika I'll call her at 8",
+  "I need to focus for a couple of hours", "what did I miss?". Anything that would send or change
+  a mode is read back first and waits for "yes".
+- `flins run --voice`, `flins voice test | say | voices`.
+- Spoken approvals ("approve number seven"); contact names tolerant of speech-to-text spelling.
+- Tests: 533 Python, 9 Node.
+
 ## 0.5.0: M5 automatic holding replies, FLINS in your self-chat (2026-11-09)
 - In working / focus / away mode, your holding-reply template goes out by itself to the contacts
   the policy allows: once per chat per session, after 20–90 s, never if you've replied yourself,

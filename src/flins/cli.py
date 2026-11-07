@@ -28,6 +28,7 @@ from flins.core.commands import CommandRouter, SelfChatCommands
 from flins.core.db import connect, migrate, table_names
 from flins.core.events import Event, EventBus
 from flins.core.ingest import ContactsResult, Ingestor, StoredMessage
+from flins.core.intents import IntentParser
 from flins.core.modes import ModeManager
 from flins.core.outbox import OutboxWorker
 from flins.core.pipeline import Pipeline
@@ -283,7 +284,7 @@ def _attach_printers(bus: EventBus) -> None:
     bus.subscribe("outbox.cancelled", on_cancelled)
 
 
-async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
+async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool = False) -> int:
     """`wa tail` (brain=False): store and show. `run` (brain=True): also modes and decisions."""
     secret_value = settings.secrets.flins_wa_secret
     secret = secret_value.get_secret_value() if secret_value else ""
@@ -318,6 +319,8 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
     ticker: asyncio.Task[None] | None = None
     dashboard: uvicorn.Server | None = None
     dashboard_task: asyncio.Task[None] | None = None
+    voice_task: asyncio.Task[None] | None = None
+    hotkey = None
     if brain:
         clock = SystemClock()
         modes = await ModeManager.open(settings.db_path, bus, settings.policy, clock)
@@ -335,8 +338,17 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
         )
         approvals = ApprovalService(conn, settings.policy)
         outbox = OutboxWorker(conn, settings.policy, adapter, clock, bus)
-        SelfChatCommands(conn, bus, CommandRouter(modes, settings.policy, clock, approvals))
+        intents = (
+            IntentParser(ai.gateway, load_prompt(settings.prompts_dir, "intent"))
+            if ai is not None
+            else None
+        )
+        router = CommandRouter(modes, settings.policy, clock, approvals, intents=intents, conn=conn)
+        SelfChatCommands(conn, bus, router)
         notifier = SelfChatNotifier(conn, bus, settings.policy, clock, lambda: ingest.me)
+        voice_loop = None
+        if voice or settings.app.voice.enabled:
+            voice_loop, hotkey = await _start_voice(settings, router, bus)
         _attach_printers(bus)
         dashboard = _dashboard_server(settings)
         dashboard_task = asyncio.create_task(dashboard.serve())
@@ -374,11 +386,15 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
                     if result is not None:
                         print(f"   FLINS: {result.readback}")
                         await notifier.note(result.readback)  # e.g. the session summary
+                        if voice_loop is not None and settings.app.voice.speak_alerts:
+                            await voice_loop.say(result.readback)
                 except Exception as exc:  # keep ticking; one bad burst must not stop expiry
                     print(f"-- tick error: {type(exc).__name__}: {exc}")
                 await asyncio.sleep(1)
 
         ticker = asyncio.create_task(tick_forever())
+        if voice_loop is not None and hotkey is not None:
+            voice_task = asyncio.create_task(voice_loop.run(hotkey.presses))
     else:
         print("watching WhatsApp (read-only). Ctrl+C to stop.")
     try:
@@ -404,6 +420,10 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
     finally:
         if ticker is not None:
             ticker.cancel()
+        if voice_task is not None:
+            voice_task.cancel()
+        if hotkey is not None:
+            hotkey.stop()
         if dashboard is not None:
             dashboard.should_exit = True
             if dashboard_task is not None:
@@ -520,12 +540,95 @@ def cmd_llm(root: Path | None, action: str, provider: str | None) -> int:
     return asyncio.run(_llm(settings, action, provider))
 
 
-def cmd_live(root: Path | None, spawn: bool, *, brain: bool) -> int:
+async def _start_voice(settings: Settings, router: Any, bus: EventBus) -> tuple[Any, Any]:
+    """Voice loop + hotkey, or (None, None) with a message if voice can't start."""
+    from flins.voice.factory import VoiceUnavailable, make_loop
+    from flins.voice.hotkey import Hotkey
+
+    try:
+        loop = make_loop(settings, router)
+    except VoiceUnavailable as exc:
+        print(f"-- voice off: {exc}")
+        return None, None
+    v = settings.app.voice
+    print(f"Voice: loading the speech model ({v.stt_model}); the first time it downloads...")
+    await asyncio.get_running_loop().run_in_executor(None, loop._stt.load)  # type: ignore[attr-defined]
+    hotkey = Hotkey(v.hotkey)
+    hotkey.start()
+    print(f"Voice ready: press {v.hotkey.replace('<', '').replace('>', '').title()} and speak.")
+
+    if v.speak_alerts:
+
+        async def on_decision(e: Event) -> None:
+            if e.data.get("interrupt") or e.data.get("escalate"):
+                who = e.data.get("contact_name") or "someone"
+                await loop.say(f"Urgent message from {who}.")
+
+        async def on_expiring(e: Event) -> None:
+            await loop.say(str(e.data["text"]))
+
+        bus.subscribe("decision.made", on_decision)
+        bus.subscribe("mode.expiring", on_expiring)
+    return loop, hotkey
+
+
+async def _voice_command(settings: Settings, action: str, text: str) -> int:
+    from flins.voice.factory import VoiceUnavailable, check_installed, make_stt, make_tts
+    from flins.voice.tts import speakable
+
+    try:
+        check_installed()
+    except VoiceUnavailable as exc:
+        print(exc)
+        return 1
+    tts = make_tts(settings)
+    if action == "voices":
+        from flins.voice.tts import SapiTTS
+
+        for name in SapiTTS().voices():
+            print(name)
+        return 0
+    if action == "say":
+        await tts.say(speakable(text or "Hello, I'm FLINS, Hemanth's assistant."))
+        return 0
+    # test: one round of listen -> transcribe -> speak back, with timings
+    import time
+
+    from flins.voice.audio import MicRecorder, beep
+
+    stt = make_stt(settings)
+    v = settings.app.voice
+    print(f"Loading the speech model '{v.stt_model}' (downloads ~460 MB the first time)...")
+    started = time.monotonic()
+    await asyncio.get_running_loop().run_in_executor(None, stt.load)
+    print(f"Model ready in {time.monotonic() - started:.1f} s. Speak after the beep.")
+    beep()
+    rec = await MicRecorder(max_s=v.max_record_s, silence_s=v.silence_s).record()
+    if not rec.heard_speech:
+        print("I didn't hear anything. Check the microphone in Windows sound settings.")
+        return 1
+    t = await stt.transcribe(rec.audio)
+    reply = f"I heard: {t.text}" if t.text else "I couldn't make out any words."
+    latency = time.monotonic() - rec.speech_end
+    print(f"Heard: {t.text!r} (language {t.language}, transcribed in {t.seconds:.2f} s)")
+    print(f"From the end of your speech to FLINS answering: {latency:.2f} s (target < 2.5 s)")
+    await tts.say(reply)
+    return 0
+
+
+def cmd_voice(root: Path | None, action: str, text: str) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_voice_command(settings, action, text))
+
+
+def cmd_live(root: Path | None, spawn: bool, *, brain: bool, voice: bool = False) -> int:
     settings = _load(root)
     if settings is None:
         return 1
     try:
-        return asyncio.run(_run_live(settings, spawn, brain=brain))
+        return asyncio.run(_run_live(settings, spawn, brain=brain, voice=voice))
     except KeyboardInterrupt:
         return 0
 
@@ -574,6 +677,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="check config, database and tools")
     run = sub.add_parser("run", help="start FLINS: WhatsApp + modes + decisions (shadow mode)")
     run.add_argument("--no-spawn", action="store_true", help="don't start the sidecar")
+    run.add_argument("--voice", action="store_true", help="also listen on the push-to-talk hotkey")
     sub.add_parser("stop", help="kill switch: pause FLINS until you say 'resume'")
     sub.add_parser("resume", help="undo `flins stop`: back to the previous mode if it hasn't ended")
     mode = sub.add_parser("mode", help="show or change mode, e.g. flins mode working mood till 6pm")
@@ -585,6 +689,9 @@ def build_parser() -> argparse.ArgumentParser:
     tail = wa_sub.add_parser("tail", help="store and show incoming messages live (read-only)")
     tail.add_argument("--no-spawn", action="store_true", help="don't start the sidecar")
     sub.add_parser("dashboard", help="open the local dashboard without running FLINS")
+    vo = sub.add_parser("voice", help="voice: test (mic + speech model), say <text>, voices")
+    vo.add_argument("action", choices=["test", "say", "voices"])
+    vo.add_argument("text", nargs="*")
     ev = sub.add_parser("eval", help="run the WhatsApp safety eval (recorded LLM answers)")
     ev.add_argument("--live", action="store_true", help="use the real AI models (costs money)")
     ev.add_argument("--provider", default=None, help="live, with only this provider (e.g. groq)")
@@ -617,11 +724,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_wa_pair(root, args.force)
         return cmd_live(root, spawn=not args.no_spawn, brain=False)
     if args.command == "run":
-        return cmd_live(root, spawn=not args.no_spawn, brain=True)
+        return cmd_live(root, spawn=not args.no_spawn, brain=True, voice=args.voice)
     if args.command == "mode":
         return cmd_mode(root, " ".join(args.args))
     if args.command in ("stop", "resume"):
         return cmd_mode(root, args.command)
+    if args.command == "voice":
+        return cmd_voice(root, args.action, " ".join(args.text))
     if args.command == "dashboard":
         return cmd_dashboard(root)
     if args.command == "eval":

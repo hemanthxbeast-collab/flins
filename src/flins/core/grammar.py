@@ -97,8 +97,37 @@ _TIME_TAIL = re.compile(
 _PROFILE_TAIL = re.compile(r"^(?P<head>.*?)[\s,]+(?P<profile>strict|open)$")
 _EXTEND = re.compile(r"^(?:extend|keep it on|keep going)(?:\s+(?P<time>.+))?$")
 
-_APPROVE = re.compile(r"^(?:y|yes|approve|send(?: it)?|ok)\s*#?\s*(?P<n>\d+)?$")
-_REJECT = re.compile(r"^(?:n|no|reject|don'?t send|skip)\s*#?\s*(?P<n>\d+)?$")
+# Spoken forms too: "approved number seven", "reject no. 3", "y 4".
+_NUM = r"\s*(?:#|number|no\.?|num)?\s*(?P<n>\d+|{words})?$"
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+}
+_WORDS = "|".join(_NUMBER_WORDS)
+_APPROVE = re.compile(
+    r"^(?:y|yes|approve|approved|send(?: it)?|ok)" + _NUM.replace("{words}", _WORDS)
+)
+_REJECT = re.compile(
+    r"^(?:n|no|reject|rejected|don'?t send|skip)" + _NUM.replace("{words}", _WORDS)
+)
 _EDIT = re.compile(r"^(?:e|edit)\s*#?\s*(?P<n>\d+)\s*[:\-]?\s+(?P<text>.+)$", re.DOTALL)
 _PENDING = re.compile(r"^(?:read |show |list )?(?:pending|approvals|what'?s pending)$")
 
@@ -190,7 +219,8 @@ def parse(text: str, *, now: datetime, tz: ZoneInfo) -> Command | ParseError | N
             # A bare "ok"/"yes"/"no" with no number is conversation, not a command.
             if n is None and t in {"ok", "yes", "no", "y", "n"}:
                 return None
-            return ApprovalCommand(op, int(n) if n else None)  # type: ignore[arg-type]
+            number = (int(n) if n.isdigit() else _NUMBER_WORDS[n]) if n else None
+            return ApprovalCommand(op, number)  # type: ignore[arg-type]
     if _PENDING.fullmatch(t):
         return ApprovalCommand("list")
 

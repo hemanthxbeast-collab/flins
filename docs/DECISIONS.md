@@ -2,6 +2,31 @@
 
 Short records of choices made while building. Newest first.
 
+## M6: voice and natural-language commands (2026-11-09)
+- **Voice is an optional install** (`uv sync --extra voice`): sounddevice, numpy, faster-whisper,
+  pyttsx3, pynput. Not on the original stack list: `pyttsx3` (Windows voices, offline, nothing to
+  download) instead of Piper for now, and `pynput` for the global hotkey. No `silero-vad` /
+  PyTorch: faster-whisper's built-in VAD plus a simple loudness check is enough for push-to-talk.
+- **Measured on this laptop (CPU, int8):** `small` ~2 s per command, `base` ~0.7 s with the same
+  accuracy on test commands. Default is **`base`**, silence wait **0.9 s**, so speech end to answer
+  is about 1.6 s plus the AI for free-form commands (~0.5 s on Groq): under the 2.5 s target.
+  `small` stays available for better Hinglish.
+- **CPU by default.** The laptop's NVIDIA GPU failed with "cublas64_12.dll not found" (CUDA
+  libraries not installed). `stt_device: cuda` is an option; a CUDA failure falls back to CPU.
+- **Tier B (free-form) only for voice and self-chat**, never the CLI, and only when no fixed
+  phrase matches. It uses the triage providers unless an `intent` route is configured.
+- **Everything Tier B would *do* is read back and waits for "yes"** (60 s): sending a message,
+  changing or extending a mode, resume, approving or editing a draft. Exceptions: `stop`
+  (always safe), and read-only answers (status, pending, summary). Rejecting a draft is also
+  immediate, because it only prevents a send.
+- **Messages you dictate are worded by FLINS:** "Hemanth asked me to tell you: …" plus the
+  signature. They go through the outbox like approved drafts, so only to people who wrote within
+  24 h (for now).
+- **Found by the real-model checks:** Groq kept "call *her*" in a message *to* her, and passed
+  "a couple of hours" through unparsed. The intent prompt now addresses messages to the recipient
+  and normalises times. Whisper heard "Radhika" as "Radhi Ga"/"Radhiga", so contact matching
+  ignores spaces and allows small misspellings, and fixed commands accept "approved number seven".
+
 ## M5: automatic holding replies, self-chat, summary (2026-11-09)
 - **Only holding replies go out by themselves** (AUTO_SAFE: your third-person templates). Replies
   the AI writes still need your approval; per-contact unlock is M9. `auto_replies: off` turns

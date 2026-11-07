@@ -472,6 +472,11 @@ class ModeManager:
             row = await cur.fetchone()
         return int(row[0]) if row else 0
 
+    async def summary_text(self) -> str:
+        """'What did I miss?': the current (or last) busy session, message by message."""
+        d = await self._debrief(self.state)
+        return readback._debrief_text(d)
+
     async def session_started_at(self) -> datetime:
         """When this busy session began: the last switch out of NORMAL (survives stop/resume)."""
         timed = tuple(m.value for m in TIMED_MODES)
