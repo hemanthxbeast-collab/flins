@@ -2,6 +2,32 @@
 
 Short records of choices made while building. Newest first.
 
+## Voice: better with Indian English (2026-11-09)
+From the first real session ("hier schon da", "10 roul", "tell, I should have…"):
+- **Language fixed to English by default** (`voice.language: en`). Auto-detection on short clips
+  picked German. Setting it also skips the detection pass, which made `small` *faster*
+  (2 s -> 1.15 s on this laptop).
+- **Accuracy presets** (`voice.accuracy`): fast = base / greedy; **balanced (default)** = small
+  with beam search 5; best = medium. `stt_model` still overrides.
+- **Contact names as hints.** Whisper gets the names of your close contacts and recent chats as a
+  spelling prompt, and the intent model gets the same **first names (never numbers)** so it can
+  map "roul" to Rahul. That's a small privacy change: those names now go to the AI provider with
+  free-form voice/self-chat commands.
+- **Sound-alike and phone-number matching** in contact lookup ("roul"/"raul" -> Rahul,
+  "9666666666" -> the contact with that number).
+- When FLINS doesn't understand, it says what it heard ("I heard '…'. Sorry…").
+- **Follow-up questions are remembered** per source (voice / self-chat) for 60 s: the next
+  words answer the question FLINS just asked. A clear fixed-phrase command ("stop", "status")
+  still takes priority, and "no / never mind / forget it" cancels. Found in the second voice
+  session: "What should I tell Radhika K?" -> "I'll call him back at 8" was treated as a new,
+  unrecognised command.
+- **Wrong guesses are caught by the read-back:** replaying the session with Groq, a misheard
+  "Send each other a message…" was guessed as Meera, and "10 roul" as Arjun. Neither would be
+  sent without your "yes", because the read-back names the contact.
+- Measured with Windows' (American) test voice: balanced got 5/5 test commands exactly, including
+  Rahul / Radhika / Meera, at ~1.15 s each; fast mangled two of the names. Real Indian-English
+  accuracy can only be judged with your voice.
+
 ## M6: voice and natural-language commands (2026-11-09)
 - **Voice is an optional install** (`uv sync --extra voice`): sounddevice, numpy, faster-whisper,
   pyttsx3, pynput. Not on the original stack list: `pyttsx3` (Windows voices, offline, nothing to

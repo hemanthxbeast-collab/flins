@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from flins.voice.audio import Recorder, beep
@@ -39,7 +39,9 @@ class VoiceLoop:
         signature: str | None = None,
         announce: Callable[[str], None] = print,
         beep_fn: Callable[[], None] = beep,
+        hint_source: Callable[[], Awaitable[str]] | None = None,
     ) -> None:
+        self._hint_source = hint_source
         self._router = router
         self._recorder = recorder
         self._stt = stt
@@ -67,7 +69,13 @@ class VoiceLoop:
         if not rec.heard_speech:
             await self.say(NOT_HEARD)
             return None
-        transcript = await self._stt.transcribe(rec.audio)
+        hint = None
+        if self._hint_source is not None:
+            try:
+                hint = await self._hint_source()
+            except Exception:  # hints are a bonus; never fail a turn over them
+                hint = None
+        transcript = await self._stt.transcribe(rec.audio, hint)
         heard = transcript.text.strip()
         if not heard:
             await self.say(NOT_UNDERSTOOD)
@@ -75,6 +83,8 @@ class VoiceLoop:
         self._announce(f"   YOU (voice): {heard}")
         think_started = time.monotonic()
         reply = await self._router.handle_text(heard, source="voice") or NOT_UNDERSTOOD
+        if reply.startswith(("Sorry", "I couldn't find")):
+            reply = f'I heard "{heard}". {reply}'  # so you can tell what went wrong
         think = time.monotonic() - think_started
         self._announce(f"   FLINS: {reply}")
         latency = time.monotonic() - rec.speech_end

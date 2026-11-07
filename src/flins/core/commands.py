@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 import aiosqlite
@@ -26,7 +27,13 @@ from flins.core.grammar import (
     parse,
     parse_time,
 )
-from flins.core.intents import Intent, IntentParser, find_contacts
+from flins.core.intents import (
+    ContactMatch,
+    Intent,
+    IntentParser,
+    contact_names,
+    find_contacts,
+)
 from flins.core.levels import Level
 from flins.core.modes import ModeEvent, ModeManager, TransitionError
 from flins.core.outbox import SELF_PREFIX, OutboxError, enqueue
@@ -54,7 +61,24 @@ YES = {
     "yes please",
     "yes send it",
 }
-NO = {"no", "n", "nope", "nah", "nahi", "cancel", "don't", "dont", "no thanks", "leave it"}
+NO = {
+    "no",
+    "n",
+    "nope",
+    "nah",
+    "nahi",
+    "cancel",
+    "don't",
+    "dont",
+    "no thanks",
+    "leave it",
+    "never mind",
+    "nevermind",
+    "forget it",
+    "skip it",
+    "no need",
+    "rehne do",
+}
 HELP = (
     "Sorry, I didn't get that. Try 'working mood till 6', 'what did I miss', "
     "'approve 3', or 'tell Rahul I'll call at 8'."
@@ -66,6 +90,16 @@ class _Confirmation:
     question: str
     run: Callable[[], Awaitable[str]]
     expires: datetime
+
+
+@dataclass
+class _FollowUp:
+    """A question FLINS asked that your next words answer."""
+
+    kind: Literal["message", "contact", "time"]
+    expires: datetime
+    contact: ContactMatch | None = None  # "message": who it's for
+    text: str | None = None  # "contact": the message waiting for a recipient
 
 
 def _plain(text: str) -> str:
@@ -91,6 +125,7 @@ class CommandRouter:
         self._intents = intents
         self._conn = conn
         self._pending: dict[str, _Confirmation] = {}
+        self._follow: dict[str, _FollowUp] = {}
 
     async def handle_text(self, text: str, *, source: str) -> str | None:
         """Run a command. Returns reply text, or None if `text` isn't a command."""
@@ -103,6 +138,15 @@ class CommandRouter:
             if answer in NO:
                 return "Okay, I won't."
             # Anything else: the question lapses and the new text is handled normally.
+
+        follow = self._follow.pop(source, None)
+        if follow is not None and follow.expires > now:
+            if _plain(text) in NO:
+                return "Okay, never mind."
+            command = parse(text, now=now, tz=self._tz)
+            if command is None or isinstance(command, ParseError):
+                return await self._answer(follow, text, source)
+            # A clear command ("stop", "status", ...) wins over the open question.
 
         cmd = parse(text, now=now, tz=self._tz)
         if cmd is None:
@@ -157,8 +201,9 @@ class CommandRouter:
     async def _tier_b(self, text: str, source: str) -> str | None:
         if self._intents is None or source not in ("voice", "self_chat"):
             return None
+        names = await contact_names(self._conn) if self._conn is not None else []
         try:
-            intent = await self._intents.parse(text)
+            intent = await self._intents.parse(text, names)
         except LLMError:
             return None if source == "self_chat" else "Sorry, I can't understand that right now."
         a = intent.action
@@ -195,7 +240,8 @@ class CommandRouter:
                 )
         if intent.action == "extend":
             if until is None:
-                return "Until when? Try 'extend till 7pm'."
+                self._ask(source, _FollowUp("time", self._expiry()))
+                return "Until when? For example 'till 7pm' or 'one more hour'."
             event, what = ModeEvent.EXTEND, f"Keep the mode on until {self._hm(until)}?"
         elif intent.action == "done":
             event, what = ModeEvent.EXIT_TO_NORMAL, "Go back to normal mode?"
@@ -241,21 +287,33 @@ class CommandRouter:
     async def _confirm_send(self, intent: Intent, source: str) -> str:
         if self._conn is None:
             return "Sending messages only works while `flins run` is running."
-        if not intent.contact:
+        return await self._send_flow(intent.contact, intent.text, source)
+
+    async def _send_flow(self, spoken: str | None, text: str | None, source: str) -> str:
+        """Find the contact and the message, asking for whichever is missing."""
+        assert self._conn is not None
+        if not spoken:
+            self._ask(source, _FollowUp("contact", self._expiry(), text=text))
             return "Who should I send it to?"
-        matches = await find_contacts(self._conn, intent.contact)
+        matches = await find_contacts(self._conn, spoken)
         if not matches:
-            return f"I couldn't find a contact called {intent.contact}."
+            self._ask(source, _FollowUp("contact", self._expiry(), text=text))
+            return f"I couldn't find a contact called {spoken}. Who should I send it to?"
         if len(matches) > 1:
+            self._ask(source, _FollowUp("contact", self._expiry(), text=text))
             names = ", ".join(m.name for m in matches[:4])
             return f"Which one: {names}? Say the full name."
         who = matches[0]
-        if not intent.text:
+        if not text:
+            self._ask(source, _FollowUp("message", self._expiry(), contact=who))
             return f"What should I tell {who.name}?"
+        return self._confirm_send_to(who, text, source)
+
+    def _confirm_send_to(self, who: ContactMatch, text: str, source: str) -> str:
         user = self._policy.user.name
         signature = self._policy.user.signature
         # FLINS speaks *for* you, never *as* you.
-        body = f"{user} asked me to tell you: {intent.text.strip()}"
+        body = f"{user} asked me to tell you: {text.strip()}"
         final = f"{body} {signature}".strip()
 
         async def run() -> str:
@@ -274,6 +332,63 @@ class CommandRouter:
             return f"Sending to {who.name}{note}."
 
         return self._confirm(source, f'Send to {who.name}: "{body}"?', run)
+
+    # ------------------------------------------------------------------ follow-ups
+
+    def _expiry(self) -> datetime:
+        return self._clock.now() + CONFIRM_FOR
+
+    def _ask(self, source: str, follow: _FollowUp) -> None:
+        self._follow[source] = follow
+
+    async def _answer(self, follow: _FollowUp, text: str, source: str) -> str:
+        """Your words answer FLINS's last question."""
+        if follow.kind == "message":
+            assert follow.contact is not None
+            message = await self._addressed_to(follow.contact.name, text)
+            return self._confirm_send_to(follow.contact, message, source)
+        if follow.kind == "contact":
+            if self._conn is None:
+                return "Sending messages only works while `flins run` is running."
+            spoken = text.strip().strip(".!?")
+            if not await find_contacts(self._conn, spoken) and self._intents is not None:
+                # "to Radika HD please" -> let the model pick the name out.
+                try:
+                    names = await contact_names(self._conn)
+                    guess = await self._intents.parse(f"send a message to {spoken}", names)
+                    spoken = guess.contact or spoken
+                except LLMError:
+                    pass
+            return await self._send_flow(spoken, follow.text, source)
+        # "time": answer to "Until when?"
+        until = parse_time(text.strip().strip(".!?").lower(), self._clock.now(), self._tz)
+        if until is None and self._intents is not None:
+            try:
+                guess = await self._intents.parse(f"extend {text}")
+                if guess.duration_or_time:
+                    until = parse_time(guess.duration_or_time, self._clock.now(), self._tz)
+            except LLMError:
+                pass
+        if until is None:
+            self._ask(source, _FollowUp("time", self._expiry()))
+            return "I didn't get the time. Try 'till 7pm' or 'for one more hour'."
+        target = until
+
+        async def run() -> str:
+            return await self._mode(ModeEvent.EXTEND, source, until=target)
+
+        return self._confirm(source, f"Keep the mode on until {self._hm(target)}?", run)
+
+    async def _addressed_to(self, name: str, said: str) -> str:
+        """'I'll call him back at 8' -> 'I'll call you back at 8' (written to the recipient)."""
+        said = said.strip()
+        if self._intents is None:
+            return said
+        try:
+            guess = await self._intents.parse(f"tell {name} {said}", [name])
+        except LLMError:
+            return said
+        return guess.text.strip() if guess.action == "send" and guess.text else said
 
     def _hm(self, dt: datetime) -> str:
         return dt.astimezone(self._tz).strftime("%H:%M")

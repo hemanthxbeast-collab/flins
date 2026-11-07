@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.1: Voice tuned for Indian English (2026-11-09)
+- English by default (no more clips misread as German), `accuracy: fast | balanced | best`
+  (default balanced: small model + beam search, ~1.15 s on this laptop).
+- Your contacts' names help both speech recognition and command understanding.
+- Contacts found by sound ("roul" -> Rahul) and by phone number.
+- FLINS repeats what it heard when it doesn't understand.
+- Follow-up questions: after "What should I tell Radhika?", "Who should I send it to?",
+  "Which one…?" or "Until when?", your next words are taken as the answer (60 s). Dictated
+  messages are addressed to the recipient ("call him back" -> "call you back"). "Never mind",
+  "forget it" and similar cancel.
+- Tests: 547 Python, 9 Node.
+
 ## 0.6.0: M6 voice and natural-language commands (2026-11-09)
 - Push-to-talk (Ctrl+Alt+Space): speak a command, FLINS answers out loud. Local speech-to-text
   (faster-whisper `base`, ~0.7 s per command on CPU) and Windows voices for speech.

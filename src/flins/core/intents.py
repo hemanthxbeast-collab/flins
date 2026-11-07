@@ -73,8 +73,11 @@ class IntentParser:
         self._gw = gateway
         self._prompt = prompt
 
-    async def parse(self, text: str) -> Intent:
+    async def parse(self, text: str, names: list[str] | None = None) -> Intent:
         user = f"<command>\n{neutralise(text)}\n</command>"
+        if names:
+            # Names only, never numbers: lets the model map "roul" -> "Rahul".
+            user += "\n<contacts>\n" + ", ".join(neutralise(n) for n in names) + "\n</contacts>"
         intent = await self._gw.json(
             prompt=self._prompt, user=user, schema=INTENT_SCHEMA, out=Intent
         )
@@ -89,8 +92,69 @@ class ContactMatch:
     name: str
 
 
+_SOUNDS = (
+    ("ph", "f"),
+    ("sh", "s"),
+    ("th", "t"),
+    ("dh", "d"),
+    ("kh", "k"),
+    ("bh", "b"),
+    ("gh", "g"),
+    ("ck", "k"),
+    ("q", "k"),
+    ("z", "j"),
+    ("w", "v"),
+    ("ee", "i"),
+    ("oo", "u"),
+)
+
+
+def sound_key(name: str) -> str:
+    """A rough 'sounds like' key for Indian names as speech-to-text spells them:
+    'Rahul' / 'Roul' -> 'rl', 'Radhika' / 'Radika' -> 'ysd'."""
+    s = "".join(ch for ch in name.lower() if ch.isalpha())
+    for a, b in _SOUNDS:
+        s = s.replace(a, b)
+    s = s.replace("h", "")
+    if not s:
+        return ""
+    rest = "".join(ch for ch in s[1:] if ch not in "aeiouy")
+    out = s[0]
+    for ch in rest:
+        if ch != out[-1]:
+            out += ch
+    return out
+
+
+async def contact_names(conn: aiosqlite.Connection, limit: int = 30) -> list[str]:
+    """Names you're most likely to say: close contacts and recent chats, most recent first."""
+    async with conn.execute(
+        """
+        SELECT COALESCE(c.display_name, c.push_name) AS name,
+               MAX(COALESCE(m.ts, '')) AS last
+        FROM contacts c
+        LEFT JOIN messages m ON m.chat_jid = c.wa_jid AND m.ts >= datetime('now', '-30 days')
+        WHERE c.tier != 'blocked' AND COALESCE(c.display_name, c.push_name) IS NOT NULL
+          AND (c.tier IN ('inner', 'trusted') OR m.id IS NOT NULL)
+        GROUP BY c.id
+        ORDER BY last DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ) as cur:
+        return [str(r[0]) for r in await cur.fetchall()]
+
+
 async def find_contacts(conn: aiosqlite.Connection, spoken: str) -> list[ContactMatch]:
-    """Contacts whose saved or self-chosen name matches what was said. Best first."""
+    """Contacts whose saved or self-chosen name (or phone number) matches what was said."""
+    digits = "".join(ch for ch in spoken if ch.isdigit())
+    if len(digits) >= 7:
+        async with conn.execute(
+            "SELECT wa_jid, COALESCE(display_name, push_name, wa_jid) FROM contacts "
+            "WHERE tier != 'blocked' AND wa_jid LIKE ?",
+            (f"%{digits[-10:]}@%",),
+        ) as cur:
+            return [ContactMatch(r[0], str(r[1])) for r in await cur.fetchall()]
     async with conn.execute(
         "SELECT wa_jid, COALESCE(display_name, push_name) AS name FROM contacts "
         "WHERE tier != 'blocked' AND COALESCE(display_name, push_name) IS NOT NULL"
@@ -127,4 +191,12 @@ async def find_contacts(conn: aiosqlite.Connection, spoken: str) -> list[Contact
     scored.sort(key=lambda x: -x[0])
     if len(scored) > 1 and scored[0][0] - scored[1][0] >= 0.15:
         return [scored[0][1]]  # a clear winner
-    return [m for _, m in scored[:3]]
+    if scored:
+        return [m for _, m in scored[:3]]
+    # Last resort: names that *sound* the same ("roul" -> "Rahul").
+    key = sound_key(want.split()[0])
+    if len(key) < 2:
+        return []
+    return [ContactMatch(j, n) for j, n in rows if key in (sound_key(n.split()[0]), sound_key(n))][
+        :3
+    ]

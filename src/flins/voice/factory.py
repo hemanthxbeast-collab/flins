@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
+import aiosqlite
+
+from flins.core.intents import contact_names
 from flins.settings import Settings
 from flins.voice.audio import MicRecorder
 from flins.voice.loop import VoiceLoop, _Router
-from flins.voice.stt import WhisperSTT
+from flins.voice.stt import PRESETS, WhisperSTT
 from flins.voice.tts import TTS, PrintTTS, SapiTTS
 
 INSTALL_HINT = "Voice isn't installed. Run: uv sync --extra voice"
@@ -35,11 +38,17 @@ def make_tts(settings: Settings) -> TTS:
 
 def make_stt(settings: Settings) -> WhisperSTT:
     v = settings.app.voice
-    return WhisperSTT(v.stt_model, device=v.stt_device, language=v.language)
+    model, beam = PRESETS[v.accuracy]
+    return WhisperSTT(
+        v.stt_model or model, device=v.stt_device, language=v.language, beam_size=beam
+    )
 
 
 def make_loop(
-    settings: Settings, router: _Router, announce: Callable[[str], None] = print
+    settings: Settings,
+    router: _Router,
+    announce: Callable[[str], None] = print,
+    conn: aiosqlite.Connection | None = None,
 ) -> VoiceLoop:
     check_installed()
     v = settings.app.voice
@@ -50,4 +59,13 @@ def make_loop(
         make_tts(settings),
         signature=settings.policy.user.signature,
         announce=announce,
+        hint_source=_names_hint(conn) if conn is not None else None,
     )
+
+
+def _names_hint(conn: aiosqlite.Connection) -> Callable[[], Awaitable[str]]:
+    async def hint() -> str:
+        names = await contact_names(conn)
+        return ("People: " + ", ".join(names) + ".") if names else ""
+
+    return hint

@@ -348,7 +348,7 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
         notifier = SelfChatNotifier(conn, bus, settings.policy, clock, lambda: ingest.me)
         voice_loop = None
         if voice or settings.app.voice.enabled:
-            voice_loop, hotkey = await _start_voice(settings, router, bus)
+            voice_loop, hotkey = await _start_voice(settings, router, bus, conn)
         _attach_printers(bus)
         dashboard = _dashboard_server(settings)
         dashboard_task = asyncio.create_task(dashboard.serve())
@@ -540,18 +540,24 @@ def cmd_llm(root: Path | None, action: str, provider: str | None) -> int:
     return asyncio.run(_llm(settings, action, provider))
 
 
-async def _start_voice(settings: Settings, router: Any, bus: EventBus) -> tuple[Any, Any]:
+async def _start_voice(
+    settings: Settings, router: Any, bus: EventBus, conn: Any = None
+) -> tuple[Any, Any]:
     """Voice loop + hotkey, or (None, None) with a message if voice can't start."""
     from flins.voice.factory import VoiceUnavailable, make_loop
     from flins.voice.hotkey import Hotkey
 
     try:
-        loop = make_loop(settings, router)
+        loop = make_loop(settings, router, conn=conn)
     except VoiceUnavailable as exc:
         print(f"-- voice off: {exc}")
         return None, None
     v = settings.app.voice
-    print(f"Voice: loading the speech model ({v.stt_model}); the first time it downloads...")
+    model = loop._stt.model_name  # type: ignore[attr-defined]
+    print(
+        f"Voice: loading speech model '{model}' ({v.accuracy}, {v.language or 'auto'}); "
+        "the first time it downloads..."
+    )
     await asyncio.get_running_loop().run_in_executor(None, loop._stt.load)  # type: ignore[attr-defined]
     hotkey = Hotkey(v.hotkey)
     hotkey.start()
@@ -598,7 +604,7 @@ async def _voice_command(settings: Settings, action: str, text: str) -> int:
 
     stt = make_stt(settings)
     v = settings.app.voice
-    print(f"Loading the speech model '{v.stt_model}' (downloads ~460 MB the first time)...")
+    print(f"Loading speech model '{stt.model_name}' ({v.accuracy}); downloads the first time...")
     started = time.monotonic()
     await asyncio.get_running_loop().run_in_executor(None, stt.load)
     print(f"Model ready in {time.monotonic() - started:.1f} s. Speak after the beep.")

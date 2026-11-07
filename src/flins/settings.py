@@ -63,9 +63,14 @@ class LLMConfig(_Strict):
 class VoiceConfig(_Strict):
     enabled: bool = False  # or start with `flins run --voice`
     hotkey: str = "<ctrl>+<alt>+<space>"
-    stt_model: str = "base"  # faster-whisper: tiny, base, small, medium, large-v3
+    # fast = base model (~0.7 s); balanced = small + careful search (~2-3 s, much better with
+    # Indian English); best = medium (~6 s+, 1.5 GB download). stt_model overrides the model.
+    accuracy: Literal["fast", "balanced", "best"] = "balanced"
+    stt_model: str | None = None  # faster-whisper: tiny, base, small, medium, large-v3
     stt_device: Literal["cpu", "cuda", "auto"] = "cpu"  # cuda needs NVIDIA's CUDA 12 libraries
-    language: str | None = None  # None = detect (works for English, Hindi, Telugu, mixes)
+    # "en" (default) stops short clips being mistaken for German or Dutch. Use "hi"/"te" if you
+    # speak commands in Hindi/Telugu script, or null to detect each time.
+    language: str | None = "en"
     tts: Literal["sapi", "print"] = "sapi"  # sapi = Windows voices; print = text only
     tts_voice: str | None = None  # part of a Windows voice name, e.g. "Zira" or "Heera"
     tts_rate: int = Field(default=185, ge=80, le=400)

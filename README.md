@@ -19,6 +19,11 @@ Examples: *"I'm in working mood till 6"*, *"what did I miss?"*, *"approve number
 mode is read back first; say **yes** or **no**. The same plain-language commands work typed in your
 self-chat. Settings live under `voice:` in `config/flins.yaml` (model, voice, hotkey, alerts).
 
+If it mishears you: speak right after the beep, a little slower, and say names clearly. FLINS
+repeats what it heard when it can't follow. `accuracy: best` uses a bigger model (slower, more
+accurate); `accuracy: fast` is quickest. It knows your contacts' names, so "tell Rahul…" works
+better than "tell my friend…".
+
 ## Sending
 Sending stays off until you turn it on yourself in `config/policy.yaml`:
 ```yaml

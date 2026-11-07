@@ -179,7 +179,10 @@ async def test_send_to_someone_who_hasnt_written_is_refused(rig: Rig) -> None:
 
 async def test_unknown_contact_and_missing_message(rig: Rig) -> None:
     rig.answer(intent("send", contact="zorro", text="hi"))
-    assert await rig.say("tell zorro hi") == "I couldn't find a contact called zorro."
+    assert await rig.say("tell zorro hi") == (
+        "I couldn't find a contact called zorro. Who should I send it to?"
+    )
+    await rig.say("never mind")
     rig.answer(intent("send", contact="radhika", text=None))
     assert await rig.say("reply to radhika") == "What should I tell Radhika K?"
 
@@ -253,7 +256,8 @@ class FakeSTT:
     def __init__(self, text: str) -> None:
         self.text = text
 
-    async def transcribe(self, audio: Any) -> Transcript:
+    async def transcribe(self, audio: Any, hint: str | None = None) -> Transcript:
+        self.hint = hint
         return Transcript(self.text, "en", 0.01)
 
 
@@ -325,3 +329,132 @@ def test_spoken_approvals(text: str, expected: tuple[str, int]) -> None:
 async def test_contact_names_as_misheard_by_speech_to_text(rig: Rig) -> None:
     for heard in ("Radhiga", "Radhi Ga", "radhika k"):
         assert [m.name for m in await find_contacts(rig.conn, heard)] == ["Radhika K"], heard
+
+
+# ------------------------------------------------------------------ accent improvements
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [("Rahul", "roul"), ("Rahul", "raul"), ("Radhika", "radika"), ("Rohan", "rohaan")],
+)
+def test_sound_alike_names(a: str, b: str) -> None:
+    from flins.core.intents import sound_key
+
+    assert sound_key(a) == sound_key(b)
+
+
+async def test_contact_by_sound_and_by_number(rig: Rig) -> None:
+    await rig.ingest.handle(
+        ContactsUpsert(contacts=[ContactInfo(pn="919111111111@s.whatsapp.net", name="Rahul")])
+    )
+    assert [m.name for m in await find_contacts(rig.conn, "roul")] == ["Rahul"]
+    assert [m.name for m in await find_contacts(rig.conn, "+91 96666 66666")] == ["Radhika K"]
+    assert [m.name for m in await find_contacts(rig.conn, "9666666666")] == ["Radhika K"]
+
+
+async def test_intent_gets_contact_names_but_no_numbers(rig: Rig) -> None:
+    rig.answer(intent("send", contact="Radhika K", text="hi"))
+    await rig.say("tell radhi ga hi")
+    sent = rig.backend.calls[-1][1]
+    assert "<contacts>" in sent and "Radhika K" in sent
+    assert "966666" not in sent and "@s.whatsapp.net" not in sent
+
+
+async def test_names_are_passed_to_speech_model_and_misheard_text_is_echoed(rig: Rig) -> None:
+    from flins.core.intents import contact_names
+
+    async def hint() -> str:
+        return "People: " + ", ".join(await contact_names(rig.conn)) + "."
+
+    stt = FakeSTT("blah blah")
+    tts = PrintTTS()
+    rig.answer(intent("unknown", confidence=0.9))
+    loop = VoiceLoop(
+        rig.router,
+        FakeRecorder(),
+        stt,
+        tts,
+        announce=lambda _: None,
+        beep_fn=lambda: None,
+        hint_source=hint,
+    )
+    turn = await loop.turn()
+    assert "Radhika K" in (stt.hint or "")
+    assert turn is not None and turn.reply.startswith('I heard "blah blah". Sorry')
+
+
+def test_accuracy_presets(example_policy_dict: dict[str, Any], project: Path) -> None:
+    from flins.settings import load_settings
+    from flins.voice.factory import make_stt
+
+    settings = load_settings(project)
+    stt = make_stt(settings)
+    assert stt.model_name == "small" and stt._beam_size == 5 and stt._language == "en"
+    settings.app.voice.accuracy = "fast"
+    assert make_stt(settings).model_name == "base"
+    settings.app.voice.stt_model = "medium"
+    assert make_stt(settings).model_name == "medium"
+
+
+# ------------------------------------------------------------------ follow-up questions
+
+
+async def test_your_next_words_answer_what_should_i_tell(rig: Rig) -> None:
+    """The exact conversation from the first voice session."""
+    rig.answer(intent("send", contact="Radhika K", text=None))
+    assert await rig.say("Send them a message to Radika HD.") == "What should I tell Radhika K?"
+    # The model readdresses the message to her ("him" -> "you").
+    rig.answer(intent("send", contact="Radhika K", text="I'll call you back at 8 o'clock"))
+    question = await rig.say("I'll call him back at 8 o'clock.")
+    assert question == (
+        "Send to Radhika K: \"Hemanth asked me to tell you: I'll call you back at 8 o'clock\"? "
+        "Say yes or no."
+    )
+    done = await rig.say("yes")
+    assert done is not None and done.startswith("Sending to Radhika K")
+    assert "call you back at 8" in (await rig.outbox())[0]["text"]
+
+
+async def test_who_should_i_send_it_to(rig: Rig) -> None:
+    rig.answer(intent("send", contact=None, text="I'll be late"))
+    assert await rig.say("send a message saying I'll be late") == "Who should I send it to?"
+    question = await rig.say("Radhika")  # found directly, no AI needed for the name
+    assert question is not None and question.startswith('Send to Radhika K: "Hemanth asked')
+
+
+async def test_follow_up_by_phone_number(rig: Rig) -> None:
+    rig.answer(intent("send", contact="9666666666", text=None))
+    assert await rig.say("send a message to the number 9666666666") == (
+        "What should I tell Radhika K?"
+    )
+
+
+async def test_a_clear_command_overrides_the_open_question(rig: Rig) -> None:
+    rig.answer(intent("send", contact="Radhika K", text=None))
+    await rig.say("message radhika")
+    reply = await rig.say("stop")
+    assert reply is not None and "Paused" in reply
+    assert await rig.outbox() == []
+
+
+async def test_never_mind_and_expiry(rig: Rig) -> None:
+    rig.answer(intent("send", contact="Radhika K", text=None))
+    await rig.say("message radhika")
+    assert await rig.say("never mind") == "Okay, never mind."
+    await rig.say("message radhika")
+    rig.clock.advance(timedelta(seconds=61))
+    rig.answer(intent("unknown", confidence=0.9))
+    assert await rig.say("I'll call at 8") == HELP  # the question had lapsed
+
+
+async def test_until_when(rig: Rig) -> None:
+    await rig.say("working mood for 1h")
+    rig.answer(intent("extend", duration_or_time=None))
+    assert await rig.say("can you leave working mode on a bit more") == (
+        "Until when? For example 'till 7pm' or 'one more hour'."
+    )
+    question = await rig.say("till 2pm")
+    assert question == "Keep the mode on until 14:00? Say yes or no."
+    reply = await rig.say("yes")
+    assert reply is not None and "extended until 14:00" in reply
