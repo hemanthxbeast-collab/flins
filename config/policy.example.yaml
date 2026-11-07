@@ -64,6 +64,7 @@ categories:
   conflict_emotional:   NOTIFY
   media_only:           NOTIFY
   group_message:        IGNORE
+  group_mention:        NOTIFY    # @mentioned in a group listed in hard_rules.groups.allowlist
   spam_promo:           IGNORE
   unknown:              DRAFT
 
@@ -76,8 +77,11 @@ sensitivity_caps:               # any flag set by hard rules or triage → cap
   injection_suspected: NOTIFY
 
 hard_rules:
-  emergency_keywords: ["emergency", "accident", "hospital", "urgent", "call me now", "asap call", "please pick up"]
-  money_patterns: ['₹\s?\d', '\brs\.?\s?\d', '\bupi\b', '\bgpay\b', '\bphonepe\b', '\bpaytm\b', 'send money', '\bloan\b', 'transfer']
+  # Add your own languages here (Telugu/Hindi in Latin script work well as plain words).
+  emergency_keywords: ["emergency", "accident", "hospital", "urgent", "call me now", "asap call",
+                       "please pick up", "jaldi call", "turant call", "pick up the phone"]
+  money_patterns: ['₹\s?\d', '\brs\.?\s?\d', '\bupi\b', '\bgpay\b', '\bphonepe\b', '\bpaytm\b',
+                   'send money', '\bloan\b', 'transfer', '\bpaise\b', '\bpaisa\b', 'bhej do paise']
   credential_patterns: ['\botp\b', 'verification code', '\bpassword\b', '\bpin\b', '\bcvv\b']
   groups:
     allowlist: []               # group JIDs where @mentions may NOTIFY

@@ -265,3 +265,33 @@ async def test_connection_changes_are_audited_once(
     async with conn.execute("SELECT COUNT(*) FROM audit_log WHERE kind='wa.connection'") as cur:
         row = await cur.fetchone()
     assert row is not None and row[0] == 2
+
+
+async def test_self_chat_is_recognised_and_creates_no_contact(
+    ingest: Ingestor, conn: aiosqlite.Connection
+) -> None:
+    # Baileys reports our own id with a device suffix.
+    await ingest.handle(
+        ConnectionChanged(state="open", me=MeInfo(id="919000000000:12@s.whatsapp.net"))
+    )
+    stored = await ingest.handle(
+        msg(wa_msg_id="S1", chat_jid=ME, sender_jid=ME, from_me=True, push_name=None, text="status")
+    )
+    assert isinstance(stored, StoredMessage)
+    assert stored.self_chat is True and stored.chat_jid == ME
+    assert await count(conn, "contacts") == 0
+    # The same text sent to someone else is not a self-chat message.
+    other = await ingest.handle(
+        msg(wa_msg_id="S2", chat_jid=RAHUL_PN, from_me=True, push_name=None, text="status")
+    )
+    assert isinstance(other, StoredMessage) and other.self_chat is False
+
+
+async def test_mentions_of_me_are_detected(ingest: Ingestor) -> None:
+    await ingest.handle(ConnectionChanged(state="open", me=MeInfo(id=ME, lid="555:3@lid")))
+    stored = await ingest.handle(
+        msg(
+            wa_msg_id="G1", chat_jid=GROUP, is_group=True, sender_jid=RAHUL_PN, mentions=["555@lid"]
+        )
+    )
+    assert isinstance(stored, StoredMessage) and stored.mentions_me is True

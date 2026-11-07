@@ -1,6 +1,6 @@
 [project]
 name = "flins"
-version = "0.1.0"
+version = "0.2.0"
 description = "FLINS: local-first personal voice + WhatsApp assistant"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,6 +10,7 @@ dependencies = [
     "pyyaml>=6.0",
     "aiosqlite>=0.20",
     "websockets>=15",
+    "tzdata>=2024.1",
 ]
 
 [project.scripts]

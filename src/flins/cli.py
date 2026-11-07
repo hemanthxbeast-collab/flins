@@ -11,6 +11,7 @@ import sys
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from flins import __version__
 from flins.adapters.baileys import BaileysAdapter, SidecarAuthError, SidecarBusyError
@@ -18,18 +19,19 @@ from flins.adapters.base import ConnectionChanged, SidecarHello
 from flins.adapters.protocol import MIN_SECRET_LENGTH
 from flins.adapters.sidecar_proc import Sidecar, SidecarSetupError, port_open
 from flins.core.audit import AuditLog
+from flins.core.clock import SystemClock
+from flins.core.commands import CommandRouter, SelfChatCommands
 from flins.core.db import connect, migrate, table_names
-from flins.core.events import EventBus
+from flins.core.events import Event, EventBus
 from flins.core.ingest import ContactsResult, Ingestor, StoredMessage
+from flins.core.modes import ModeManager
+from flins.core.pipeline import Pipeline
 from flins.settings import Settings, find_root, load_settings
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
 # Commands that exist in the CLI but arrive in a later milestone.
 STUBS: dict[str, str] = {
-    "run": "M2",
-    "stop": "M4",
-    "mode": "M2",
     "skills": "M7",
 }
 
@@ -186,7 +188,49 @@ STOP_STATES = {
 }
 
 
-async def _wa_tail(settings: Settings, spawn: bool) -> int:
+LEVEL_WORDS = {
+    "auto": "would reply by itself",
+    "auto_safe": "would send a holding reply",
+    "draft": "would draft a reply for your approval",
+    "notify": "would just tell you",
+    "ignore": "would ignore",
+}
+
+
+def _decision_line(d: dict[str, Any]) -> str:
+    words = LEVEL_WORDS.get(d["action"], d["action"])
+    extra = []
+    if d.get("template"):
+        extra.append(f"template '{d['template']}'")
+    if d.get("hard_rules"):
+        extra.append("rules: " + ", ".join(d["hard_rules"]))
+    tail = f" ({'; '.join(extra)})" if extra else ""
+    urgent = "  ⚠ URGENT" if d.get("escalate") else ""
+    return f"          -> {words} [{d['category']}]{tail}{urgent}"
+
+
+def _attach_printers(bus: EventBus) -> None:
+    async def on_decision(e: Event) -> None:
+        print(_decision_line(e.data))
+
+    async def on_reply(e: Event) -> None:
+        print(f"   FLINS: {e.data['text']}")
+
+    async def on_mode(e: Event) -> None:
+        if e.data.get("source") == "external":
+            print(f"-- mode changed elsewhere: {e.data['from']} -> {e.data['to']}")
+
+    async def on_expiring(e: Event) -> None:
+        print(f"   FLINS: {e.data['text']}")
+
+    bus.subscribe("decision.made", on_decision)
+    bus.subscribe("command.reply", on_reply)
+    bus.subscribe("mode.changed", on_mode)
+    bus.subscribe("mode.expiring", on_expiring)
+
+
+async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
+    """`wa tail` (brain=False): store and show. `run` (brain=True): also modes and decisions."""
     secret_value = settings.secrets.flins_wa_secret
     secret = secret_value.get_secret_value() if secret_value else ""
     if len(secret) < MIN_SECRET_LENGTH:
@@ -211,11 +255,34 @@ async def _wa_tail(settings: Settings, spawn: bool) -> int:
     conn = await connect(settings.db_path)
     await migrate(conn)
     audit = AuditLog(conn)
-    ingest = Ingestor(conn, EventBus(), audit)
+    bus = EventBus()
+    ingest = Ingestor(conn, bus, audit)
     adapter = BaileysAdapter(port, secret)
     counts = {"in": 0, "out": 0, "contacts": 0}
     code = 0
-    print("watching WhatsApp (read-only). Ctrl+C to stop.")
+    modes: ModeManager | None = None
+    ticker: asyncio.Task[None] | None = None
+    if brain:
+        clock = SystemClock()
+        modes = await ModeManager.open(settings.db_path, bus, settings.policy, clock)
+        Pipeline(conn, bus, settings.policy, modes, clock)
+        SelfChatCommands(conn, bus, CommandRouter(modes, settings.policy, clock))
+        _attach_printers(bus)
+        print(f"FLINS running. {await modes.status_text()}")
+        print("Type commands in your WhatsApp 'Message yourself' chat, or use `flins mode` here.")
+        print("Shadow mode: FLINS decides but never sends. Ctrl+C to stop.")
+
+        async def tick_forever() -> None:
+            assert modes is not None
+            while True:
+                result = await modes.tick()
+                if result is not None:
+                    print(f"   FLINS: {result.readback}")
+                await asyncio.sleep(1)
+
+        ticker = asyncio.create_task(tick_forever())
+    else:
+        print("watching WhatsApp (read-only). Ctrl+C to stop.")
     try:
         async for event in adapter.events():
             result = await ingest.handle(event)
@@ -237,11 +304,15 @@ async def _wa_tail(settings: Settings, spawn: bool) -> int:
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
+        if ticker is not None:
+            ticker.cancel()
         if spawned:
             await adapter.request_sidecar_shutdown()
         await adapter.close()
         if spawned:
             await sidecar.stop()
+        if modes is not None:
+            await modes.close()
         await conn.close()
         print(
             f"stopped. {counts['in']} incoming, {counts['out']} outgoing, "
@@ -250,14 +321,44 @@ async def _wa_tail(settings: Settings, spawn: bool) -> int:
     return code
 
 
-def cmd_wa_tail(root: Path | None, spawn: bool) -> int:
+def cmd_live(root: Path | None, spawn: bool, *, brain: bool) -> int:
     settings = _load(root)
     if settings is None:
         return 1
     try:
-        return asyncio.run(_wa_tail(settings, spawn))
+        return asyncio.run(_run_live(settings, spawn, brain=brain))
     except KeyboardInterrupt:
         return 0
+
+
+async def _mode_command(settings: Settings, text: str) -> int:
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    await conn.close()
+    clock = SystemClock()
+    modes = await ModeManager.open(settings.db_path, EventBus(), settings.policy, clock)
+    try:
+        if not text.strip():
+            print(await modes.status_text())
+            return 0
+        reply = await CommandRouter(modes, settings.policy, clock).handle_text(text, source="cli")
+    finally:
+        await modes.close()
+    if reply is None:
+        print(
+            f"Not a command FLINS knows: {text!r}. Try 'working mood till 6pm', 'status', "
+            "'stop', 'resume', 'I'm done'."
+        )
+        return 2
+    print(reply)
+    return 0
+
+
+def cmd_mode(root: Path | None, text: str) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_mode_command(settings, text))
 
 
 def _stub(name: str) -> int:
@@ -272,9 +373,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("doctor", help="check config, database and tools")
-    sub.add_parser("run", help="start FLINS (M2)")
-    sub.add_parser("stop", help="kill switch: pause all sending (M4)")
-    mode = sub.add_parser("mode", help="show or change mode (M2)")
+    run = sub.add_parser("run", help="start FLINS: WhatsApp + modes + decisions (shadow mode)")
+    run.add_argument("--no-spawn", action="store_true", help="don't start the sidecar")
+    sub.add_parser("stop", help="kill switch: pause FLINS until you say 'resume'")
+    sub.add_parser("resume", help="undo `flins stop`: back to the previous mode if it hasn't ended")
+    mode = sub.add_parser("mode", help="show or change mode, e.g. flins mode working mood till 6pm")
     mode.add_argument("args", nargs="*")
     wa = sub.add_parser("wa", help="WhatsApp sidecar commands (M1)")
     wa_sub = wa.add_subparsers(dest="wa_command", required=True)
@@ -295,7 +398,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "wa":
         if args.wa_command == "pair":
             return cmd_wa_pair(root, args.force)
-        return cmd_wa_tail(root, spawn=not args.no_spawn)
+        return cmd_live(root, spawn=not args.no_spawn, brain=False)
+    if args.command == "run":
+        return cmd_live(root, spawn=not args.no_spawn, brain=True)
+    if args.command == "mode":
+        return cmd_mode(root, " ".join(args.args))
+    if args.command in ("stop", "resume"):
+        return cmd_mode(root, args.command)
     return _stub(args.command)
 
 

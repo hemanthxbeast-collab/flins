@@ -60,6 +60,12 @@ def split_identity(jid: str, alt: str | None) -> tuple[str | None, str | None]:
     return pn, lid
 
 
+def normalize_jid(jid: str) -> str:
+    """Drop the device part: '9190...:12@s.whatsapp.net' -> '9190...@s.whatsapp.net'."""
+    user, sep, server = jid.partition("@")
+    return user.split(":", 1)[0] + sep + server
+
+
 def canonical(jid: str, alt: str | None) -> str:
     """Prefer the phone-number JID. Groups and other JIDs pass through unchanged."""
     pn, lid = split_identity(jid, alt)
@@ -78,6 +84,8 @@ class StoredMessage:
     ts: str
     contact_id: int | None
     contact_name: str | None
+    self_chat: bool = False
+    mentions_me: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,8 +99,18 @@ class Ingestor:
         self._conn = conn
         self._bus = bus
         self._audit = audit
-        self.me: str | None = None
+        self.me: str | None = None  # the user's own phone-number JID, without device part
+        self.me_lid: str | None = None
         self.wa_state: str = "unknown"
+
+    def set_me(self, pn: str | None, lid: str | None = None) -> None:
+        if pn:
+            self.me = normalize_jid(pn)
+        if lid:
+            self.me_lid = normalize_jid(lid)
+
+    def is_me(self, jid: str | None) -> bool:
+        return bool(jid) and normalize_jid(jid) in {self.me, self.me_lid} - {None}  # type: ignore[arg-type]
 
     async def handle(self, event: AdapterEvent) -> StoredMessage | ContactsResult | None:
         if isinstance(event, InboundMessage):
@@ -106,8 +124,8 @@ class Ingestor:
     # ------------------------------------------------------------------ connection
 
     async def on_connection(self, event: ConnectionChanged | SidecarHello) -> None:
-        if event.me and event.me.id:
-            self.me = event.me.id
+        if event.me:
+            self.set_me(event.me.id, event.me.lid)
         if event.state == self.wa_state:
             return
         self.wa_state = event.state
@@ -293,14 +311,23 @@ class Ingestor:
             return None
 
         direction: Literal["IN", "OUT"] = "OUT" if m.from_me else "IN"
-        chat = m.chat_jid if m.is_group else canonical(m.chat_jid, m.chat_jid_alt)
+        # "Message yourself" chat: FLINS's control channel (SPEC §5.1). Only the user can write
+        # there, so only from_me messages count.
+        self_chat = (
+            not m.is_group and m.from_me and (self.is_me(m.chat_jid) or self.is_me(m.chat_jid_alt))
+        )
+        if self_chat:
+            chat = self.me or normalize_jid(m.chat_jid)
+        else:
+            chat = m.chat_jid if m.is_group else canonical(m.chat_jid, m.chat_jid_alt)
         sender = (
             (self.me or m.sender_jid) if m.from_me else canonical(m.sender_jid, m.sender_jid_alt)
         )
+        mentions_me = any(self.is_me(j) for j in m.mentions)
 
         contact_id: int | None = None
         contact_name: str | None = None
-        if not m.is_group:
+        if not m.is_group and not self_chat:
             if m.from_me:
                 pn, lid = split_identity(m.chat_jid, m.chat_jid_alt)
                 push = None
@@ -349,7 +376,9 @@ class Ingestor:
             text=m.text,
             ts=ts,
             contact_id=contact_id,
-            contact_name=contact_name,
+            contact_name=contact_name or ("You (self-chat)" if self_chat else None),
+            self_chat=self_chat,
+            mentions_me=mentions_me,
         )
         # Bus events carry ids only. Handlers read text from the DB.
         await self._bus.publish(
@@ -362,6 +391,8 @@ class Ingestor:
                 "is_group": m.is_group,
                 "contact_id": contact_id,
                 "upsert_type": m.upsert_type,
+                "self_chat": self_chat,
+                "mentions_me": mentions_me,
             },
         )
         return stored

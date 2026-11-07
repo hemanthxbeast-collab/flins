@@ -1,0 +1,48 @@
+{"start": "2026-11-09T14:00:00+05:30", "me": "919000000000@s.whatsapp.net", "contacts": [{"alias": "priya", "pn": "919444444444@s.whatsapp.net", "name": "Priya", "tier": "trusted"}]}
+// Commands from the WhatsApp self-chat
+{"self": "focus mode for 1h"}
+{"expect": "mode", "mode": "FOCUS", "until": "15:00"}
+{"expect": "reply", "contains": "Focus mode on until 15:00"}
+// A note to self is not a command
+{"self": "buy milk on the way home"}
+{"expect": "no_reply", "count": 1}
+// Old self-chat history (not live) is never executed
+{"self": "STOP", "upsert": "append"}
+{"expect": "mode", "mode": "FOCUS"}
+// Cancel right after a change
+{"self": "away mode"}
+{"expect": "mode", "mode": "AWAY"}
+{"after": "5s"}
+{"self": "cancel"}
+{"expect": "mode", "mode": "FOCUS", "until": "15:00"}
+// Too late to cancel
+{"after": "30s"}
+{"self": "cancel"}
+{"expect": "reply", "contains": "Too late to cancel"}
+// Focus: friend gets a holding reply
+{"after": "5m"}
+{"msg": {"id": "p1", "from": "priya", "text": "you around?"}, "triage": {"category": "availability_query"}}
+{"expect": "decision", "msg": "p1", "level": "AUTO_SAFE"}
+// Ten minutes before the end: warning, still FOCUS
+{"after": "45m"}
+{"tick": true}
+{"expect": "mode", "mode": "FOCUS"}
+// FLINS is off past the end time, then restarts: back to NORMAL, never stuck in auto mode
+{"after": "20m"}
+{"restart": true}
+{"expect": "mode", "mode": "NORMAL"}
+{"msg": {"id": "p2", "from": "priya", "text": "still around?"}, "triage": {"category": "availability_query"}}
+{"expect": "decision", "msg": "p2", "level": "NOTIFY"}
+{"self": "status"}
+{"expect": "reply", "contains": "Normal mode"}
+// Expiry by timer while running
+{"self": "working mood for 30 minutes"}
+{"expect": "mode", "mode": "WORKING"}
+{"after": "31m"}
+{"tick": true}
+{"expect": "mode", "mode": "NORMAL"}
+{"expect": "reply", "contains": "Working mode ended"}
+// Group messages are ignored, even in working mode
+{"self": "working mood"}
+{"msg": {"id": "g1", "from": "priya", "chat": "120363000000000000@g.us", "group": true, "text": "party at 8?"}}
+{"expect": "decision", "msg": "g1", "level": "IGNORE", "rules": ["group"]}

@@ -32,3 +32,18 @@ def test_gitignore_keeps_secrets_and_data_out() -> None:
     lines = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     for entry in (".env", "data/", "config/policy.yaml", "config/flins.yaml"):
         assert entry in lines
+
+
+def test_mode_and_stop_commands(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    root = ["--root", str(project)]
+    assert main([*root, "mode"]) == 0
+    assert "Normal mode" in capsys.readouterr().out
+    assert main([*root, "mode", "focus", "mode", "for", "1h"]) == 0
+    assert "Focus mode on until" in capsys.readouterr().out
+    assert main([*root, "stop"]) == 0
+    assert "Paused" in capsys.readouterr().out
+    assert main([*root, "mode", "working", "mood"]) == 0
+    assert "resume" in capsys.readouterr().out  # still paused: must resume first
+    assert main([*root, "resume"]) == 0
+    assert "Resumed" in capsys.readouterr().out
+    assert main([*root, "mode", "make", "me", "a", "sandwich"]) == 2

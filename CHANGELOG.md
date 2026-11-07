@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0: M2 modes, commands, hard rules, decide() (2026-11-09)
+- Mode state machine (NORMAL, WORKING, FOCUS, AWAY, PAUSED) with an explicit transition
+  table, mandatory end times (max 12 h), expiry warnings, cancel, resume, and safe restarts.
+- Tier-A command grammar shared by the CLI and the WhatsApp self-chat ("I'm in working mood
+  till 6pm", "focus mode for 1h", "stop", "resume", "I'm done", "status").
+- Hard rules (paused, blocked, group, credentials, money, emergency, rate, loop, backlog) and a
+  pure `decide()` that records every ceiling it applied.
+- Shadow pipeline: every incoming message gets a recorded, explained decision. Nothing is sent.
+- `flins run`, `flins mode <text>`, `flins stop`.
+- Replay harness (`tests/replay/*.jsonl`) with the full CLAUDE.md working-mood path.
+- Tests: 361 Python, 9 Node.
+
 ## 0.1.0: M1 WhatsApp sidecar, read-only (2026-11-07)
 - `wa-sidecar/`: Node + Baileys linked-device client. Pairs by QR, receives messages and
   contacts, reconnects with backoff, stops cleanly on logout or conflict. No send capability.

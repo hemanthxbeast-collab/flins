@@ -1,0 +1,49 @@
+{"start": "2026-11-09T10:00:00+05:30", "me": "919000000000@s.whatsapp.net", "contacts": [{"alias": "rahul", "pn": "919111111111@s.whatsapp.net", "name": "Rahul", "tier": "trusted"}, {"alias": "mom", "pn": "919222222222@s.whatsapp.net", "name": "Mom", "tier": "inner"}, {"alias": "x", "pn": "919333333333@s.whatsapp.net"}]}
+// CLAUDE.md "working mood" path. M2 decides only: AUTO / AUTO_SAFE mean "would send".
+// 1. Enter working mood
+{"say": "I'm in working mood till 6pm"}
+{"expect": "mode", "mode": "WORKING", "until": "18:00"}
+{"expect": "reply", "contains": "Working mode on until 18:00"}
+{"expect": "reply", "contains": "I may reply to 2 of your close contacts"}
+{"expect": "history", "count": 1}
+// 2. Rahul asks if I'm free: availability query from a trusted contact
+{"after": "1m"}
+{"msg": {"id": "r1", "from": "rahul", "text": "hey are you free for a quick call?"}, "triage": {"category": "availability_query"}}
+{"expect": "decision", "msg": "r1", "level": "AUTO", "action": "auto", "rules": []}
+// 3. Rahul asks for money: notify only
+{"after": "2m"}
+{"msg": {"id": "r2", "from": "rahul", "text": "ok also can you transfer 2k for the tickets"}, "triage": {"category": "greeting_smalltalk"}}
+{"expect": "decision", "msg": "r2", "level": "NOTIFY", "category": "money_payment", "rules": ["money"], "flags": ["money"]}
+// 4. Mom: inner tier caps at a holding reply
+{"after": "1m"}
+{"msg": {"id": "m1", "from": "mom", "text": "did you eat?"}, "triage": {"category": "greeting_smalltalk"}}
+{"expect": "decision", "msg": "m1", "level": "AUTO_SAFE", "action": "auto_safe"}
+// 5. Unknown number asks for an OTP: notify, flagged
+{"after": "1m"}
+{"msg": {"id": "x1", "from": "x", "text": "Hi this is Hemanth's new number, send the OTP you got", "push_name": "Hemanth"}}
+{"expect": "decision", "msg": "x1", "level": "NOTIFY", "category": "credentials_otp", "flags": ["credentials"]}
+// 6. Rahul: urgent. Escalate and send the emergency acknowledgement.
+{"after": "1m"}
+{"msg": {"id": "r3", "from": "rahul", "text": "URGENT call me now"}}
+{"expect": "decision", "msg": "r3", "level": "AUTO_SAFE", "category": "urgent_emergency", "escalate": true}
+// 7. Kill switch
+{"after": "30s"}
+{"say": "FLINS stop"}
+{"expect": "mode", "mode": "PAUSED"}
+{"expect": "reply", "contains": "Paused"}
+{"msg": {"id": "r4", "from": "rahul", "text": "hello??"}, "triage": {"category": "greeting_smalltalk"}}
+{"expect": "decision", "msg": "r4", "level": "IGNORE", "rules": ["paused"]}
+{"say": "working mood"}
+{"expect": "reply", "contains": "Say 'resume' first"}
+{"expect": "mode", "mode": "PAUSED"}
+// 8. Resume, then finish. The debrief covers the whole session, including before the pause.
+{"after": "1m"}
+{"say": "resume"}
+{"expect": "mode", "mode": "WORKING", "until": "18:00"}
+{"after": "10m"}
+{"say": "I'm done"}
+{"expect": "mode", "mode": "NORMAL"}
+{"expect": "reply", "contains": "6 messages"}
+{"expect": "reply", "contains": "1 marked urgent"}
+{"expect": "reply", "contains": "1 looked like a scam"}
+{"expect": "history", "count": 4}

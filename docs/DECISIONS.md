@@ -2,6 +2,42 @@
 
 Short records of choices made while building. Newest first.
 
+## M2 (2026-11-09)
+- **Added `tzdata`.** Windows has no built-in timezone database, and "till 6pm" has to mean 6pm
+  in `policy.user.timezone`. It's the official data package `zoneinfo` uses.
+- **Modes last at most 12 hours.** SPEC says autonomy must always end but gives no upper bound.
+  12 h covers a long working day; anything longer must be re-entered.
+- **Hard rules: all are checked and the lowest cap wins** (SPEC says "first match wins"). For
+  example, "urgent, send money" is both money (NOTIFY) and emergency (escalate). Taking the
+  minimum keeps it at NOTIFY and still escalates. This is never less safe than first-match.
+- **The category is the most cautious of all candidates** (hard-rule category, triage category,
+  structural fallback). A friendly triage label can't hide a money keyword.
+- **Built-in money, credential and emergency keywords** are always checked, on top of
+  `policy.yaml`, so emptying the lists in config can't switch the safety net off. Accepted
+  false positives: "pin the location" → credentials (NOTIFY), "transfer the file" → money
+  (NOTIFY), "not urgent" → escalate. All err on the cautious side.
+- **New category `group_mention` (NOTIFY)** for an @mention in an allow-listed group. Without
+  it, the general `group_message: IGNORE` swallowed those mentions.
+- **AUTO_SAFE without a usable template becomes NOTIFY**, never a free-form reply.
+- **Commands must be the whole message** (with an optional "FLINS," and "please"), so notes to
+  self like "I'm leaving at 5 for the airport" never change modes. A time that can't be parsed
+  is an error message, never a silent default.
+- **PAUSED answers "resume" only.** "working mood" while paused is refused with "Say 'resume'
+  first", so a stray message can't undo the kill switch.
+- **Cancel** works within 10 s of a change and only from a timed mode. You can't "cancel" your
+  way out of NORMAL or PAUSED back into autonomy.
+- **Only live self-chat messages are commands.** Self-chat history synced from the phone
+  (`append`) is never executed.
+- **The exit summary covers the whole session**, from the last time FLINS left NORMAL, so a
+  stop/resume in between doesn't drop the earlier messages.
+- **The mode is shared through SQLite.** `ModeManager` uses its own connection and
+  `BEGIN IMMEDIATE`. `flins run` re-reads the mode before every decision and every second, so
+  `flins stop` from another terminal takes effect immediately.
+- **Deferred:** replies to self-chat commands are printed where FLINS runs, because sending them
+  back into WhatsApp needs the M4 outbox. Cancelling queued sends on stop also comes with the
+  M4 outbox. Each message is its own burst for now; debouncing arrives with the M3 pipeline.
+  The fast-reply loop check reads `outbox.not_before` until M4 adds a real `sent_at`.
+
 ## M1 (2026-11-07)
 - **Baileys `7.0.0-rc14`, pinned exactly.** It's npm's `latest` tag. Versions before rc12 /
   6.7.22 have a message-spoofing vulnerability (GHSA-qvv5-jq5g-4cgg). v7 is still labelled
