@@ -398,6 +398,17 @@ async def test_changed_files_stop_the_skill(tmp_path: Path, conn: aiosqlite.Conn
     assert engine.get("pinned").status == "disabled"  # type: ignore[union-attr]
 
 
+def test_line_endings_alone_are_not_a_change(tmp_path: Path) -> None:
+    d = make_skill(tmp_path, "crlf", "def run(i, c):\n    return {}\n")
+    handler = d / "handler.py"
+    handler.write_bytes(b"def run(i, c):\n    return {}\n")
+    before = hash_skill(d)
+    handler.write_bytes(b"def run(i, c):\r\n    return {}\r\n")
+    assert hash_skill(d) == before
+    handler.write_bytes(handler.read_bytes().replace(b"{}", b"{ }"))
+    assert hash_skill(d) != before
+
+
 def test_lock_round_trip(tmp_path: Path) -> None:
     d = make_skill(tmp_path, "saved", "def run(i, c):\n    return {}\n")
     lock = SkillLock(tmp_path / LOCK_FILE)

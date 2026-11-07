@@ -41,12 +41,19 @@ def skill_files(skill_dir: Path) -> list[Path]:
     )
 
 
+# Text files are hashed with Windows line endings turned into Unix ones, so a git checkout
+# that only changes line endings doesn't count as an edit. Any other byte still does.
+TEXT_SUFFIXES = frozenset({".py", ".md", ".yaml", ".yml", ".json", ".txt", ".toml", ".csv", ".ics"})
+
+
 def hash_skill(skill_dir: Path) -> str:
-    """sha256 over every file's relative path and bytes."""
+    """sha256 over every file's relative path and bytes (line endings normalised for text)."""
     h = hashlib.sha256()
     for p in skill_files(skill_dir):
         rel = p.relative_to(skill_dir).as_posix().encode("utf-8")
         data = p.read_bytes()
+        if p.suffix.lower() in TEXT_SUFFIXES:
+            data = data.replace(b"\r\n", b"\n")
         h.update(len(rel).to_bytes(4, "big") + rel + len(data).to_bytes(8, "big") + data)
     return h.hexdigest()
 
