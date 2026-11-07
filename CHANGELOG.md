@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0: M3 AI triage, drafts, output guard, dashboard, eval (2026-11-09)
+- LLM gateway: structured JSON output, timeouts, retries, validation, refusal handling, cost
+  metering per call, daily budget. Versioned prompts in `prompts/`.
+- Triage (Claude Haiku 5.5), drafting (Claude Sonnet 5.5), red-flag check (Haiku) for replies
+  that would go out unreviewed. Holding replies stay template-only.
+- Deterministic output guard: leaks (phone, email, link, codes, money), commitments,
+  unprovided facts, never-mention topics, length, language, "I'm not a bot", injection echoes.
+- Message bursts (debounce), with urgent messages handled at once.
+- Local dashboard at http://127.0.0.1:8765: inbox with "why?" traces and would-send drafts,
+  contact tiers, stop/resume buttons.
+- 162-case WhatsApp eval with fooled/leaky/failing AI answers; CI gate: 0 unsafe sends.
+  `flins eval --live` runs the real models.
+- New hard rule: media without text is never auto-answered.
+- Tests: 425 Python, 9 Node.
+
 ## 0.2.0: M2 modes, commands, hard rules, decide() (2026-11-09)
 - Mode state machine (NORMAL, WORKING, FOCUS, AWAY, PAUSED) with an explicit transition
   table, mandatory end times (max 12 h), expiry warnings, cancel, resume, and safe restarts.

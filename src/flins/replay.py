@@ -10,13 +10,17 @@ Then one step per line:
   {"say": "I'm in working mood till 6pm"}          a command, as typed on the CLI
   {"self": "status"}                               a message in the WhatsApp self-chat
   {"msg": {"id": "r1", "from": "rahul", "text": "...", "type": "text", "group": false},
-   "triage": {"category": "availability_query"}}   an incoming message, with injected triage
+   "triage": {"category": "availability_query"},   an incoming message with recorded LLM
+   "draft": {"reply": "...", "confidence": 0.9, ...},  answers (draft_v1 / redflag_v1 shape).
+   "redflag": {"safe": true, "reason": "ok"}}      Missing draft -> drafting fails -> NOTIFY.
   {"tick": true}                                   one timer tick (expiry, warnings)
   {"restart": true}                                FLINS restarts (mode reloaded from the DB)
   {"expect": "mode", "mode": "WORKING", "until": "18:00"}
   {"expect": "decision", "msg": "r1", "level": "AUTO", "rules": [...], "escalate": true, ...}
   {"expect": "reply", "contains": "Working mode on", "absent": false}
   {"expect": "history", "count": 3}
+  {"expect": "draft", "msg": "r1", "would_send": true, "contains": "after 18:00"}
+Header option "debounce": true groups bursts; they are processed on {"tick": true}.
 Lines starting with // are comments.
 """
 
@@ -42,9 +46,14 @@ from flins.core.events import Event, EventBus
 from flins.core.ingest import Ingestor
 from flins.core.levels import Level
 from flins.core.modes import ModeManager
-from flins.core.pipeline import Pipeline
+from flins.core.pipeline import Brain, Pipeline
 from flins.core.policy_schema import Policy
 from flins.core.triage import TriageResult
+from flins.llm.gateway import FakeBackend, LLMGateway
+from flins.llm.prompts import load_prompt
+from flins.llm.services import Drafter, RedFlagChecker, Triager
+
+PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
 
 class ReplayFailure(AssertionError):
@@ -89,9 +98,35 @@ async def run_script(steps: list[dict[str, Any]], db_path: Path, policy: Policy)
     async def triage(msg: aiosqlite.Row, contact: aiosqlite.Row | None) -> TriageResult | None:
         return triage_for.get(msg["wa_msg_id"])
 
+    # Recorded LLM answers for the message being processed (drafts and red flags).
+    current: dict[str, Any] = {}
+    backend = FakeBackend(
+        {
+            "draft_v1": lambda prompt, user: current.get("draft"),
+            "redflag_v1": lambda prompt, user: current.get(
+                "redflag", {"safe": True, "reason": "ok"}
+            ),
+        }
+    )
+    gateway = LLMGateway(backend, conn, clock, daily_budget_usd=1.0, tz=tz)
+    brain = Brain(
+        gateway=gateway,
+        triager=Triager(gateway, load_prompt(PROMPTS_DIR, "triage_v1"), []),
+        drafter=Drafter(gateway, load_prompt(PROMPTS_DIR, "draft_v1")),
+        redflag=RedFlagChecker(gateway, load_prompt(PROMPTS_DIR, "redflag_v1")),
+    )
     modes = await ModeManager.open(db_path, bus, policy, clock)
     router = CommandRouter(modes, policy, clock)
-    pipeline = Pipeline(conn, bus, policy, modes, clock, triage=triage)
+    pipeline = Pipeline(
+        conn,
+        bus,
+        policy,
+        modes,
+        clock,
+        brain=brain,
+        triage=triage,
+        debounce=bool(header.get("debounce")),
+    )
     SelfChatCommands(conn, bus, router)
     report = ReplayReport()
 
@@ -159,6 +194,8 @@ async def run_script(steps: list[dict[str, Any]], db_path: Path, policy: Policy)
                         )
                         if "triage" in step:
                             triage_for[m["id"]] = TriageResult(**step["triage"])
+                        current.clear()
+                        current.update({k: step[k] for k in ("draft", "redflag") if k in step})
                     await feed(inbound)
                     async with conn.execute(
                         "SELECT id FROM messages WHERE wa_msg_id = ?", (inbound.wa_msg_id,)
@@ -167,6 +204,7 @@ async def run_script(steps: list[dict[str, Any]], db_path: Path, policy: Policy)
                     if row is not None:
                         msg_ids[inbound.wa_msg_id] = int(row[0])
                 elif "tick" in step:
+                    await pipeline.flush_due()
                     result = await modes.tick()
                     if result is not None:
                         report.replies.append(result.readback)
@@ -221,6 +259,27 @@ async def _check(
             raise ReplayFailure(
                 f"mode_history has {row[0] if row else 0} rows, expected {step['count']}"
             )
+    elif kind == "draft":
+        mid = msg_ids.get(step["msg"])
+        async with conn.execute(
+            "SELECT dr.* FROM drafts dr JOIN decisions de ON de.id = dr.decision_id "
+            "WHERE de.message_id = ? ORDER BY dr.id DESC LIMIT 1",
+            (mid,),
+        ) as cur:
+            dr = await cur.fetchone()
+        if step.get("none"):
+            if dr is not None:
+                raise ReplayFailure(f"message {step['msg']} should have no draft: {dr['text']!r}")
+            return
+        if dr is None:
+            raise ReplayFailure(f"no draft for message {step['msg']}")
+        if "would_send" in step and bool(dr["would_send"]) != step["would_send"]:
+            raise ReplayFailure(
+                f"draft for {step['msg']}: would_send is {bool(dr['would_send'])} "
+                f"({dr['guard_results']})"
+            )
+        if "contains" in step and step["contains"] not in dr["text"]:
+            raise ReplayFailure(f"draft {dr['text']!r} lacks {step['contains']!r}")
     elif kind == "decision":
         mid = msg_ids.get(step["msg"])
         async with conn.execute(

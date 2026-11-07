@@ -3,8 +3,8 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** Milestone M2. FLINS reads WhatsApp, follows modes, and decides what it *would* do
-with each message. It **cannot send anything** yet.
+**Status:** Milestone M3. FLINS reads WhatsApp, follows modes, uses Claude to understand
+messages and draft replies, and shows what it *would* send. It **cannot send anything** yet.
 
 ## Requirements
 - Windows 11, Python ≥ 3.12, [uv](https://docs.astral.sh/uv/), Node.js ≥ 20, Git
@@ -66,6 +66,24 @@ running. FLINS's answer appears in the terminal for now; from M4 it replies in t
 Modes always end: at most 12 hours, and a mode that ended while FLINS was off is NORMAL on
 restart.
 
+## AI (optional but needed for drafts)
+Put an Anthropic API key in `.env` (`ANTHROPIC_API_KEY=...`, from console.anthropic.com; billed
+separately from Claude Pro). Without it FLINS still follows the rules, but can't understand
+ordinary messages or draft replies. Spending stops at `limits.daily_llm_budget_usd` in your
+policy (default $2/day). Normal mode, paused, unknown senders, money and OTP messages never go
+to the AI at all.
+
+## Dashboard
+`flins run` serves it at http://127.0.0.1:8765 (or run `uv run flins dashboard` on its own).
+Inbox with every decision and a "why?" page, drafts FLINS would send or is holding back,
+contact tiers (set your family to `inner` and close friends to `trusted` here), and stop/resume.
+
+## Safety eval
+```powershell
+uv run flins eval            # 162 recorded cases, including fooled/leaky AI answers: must be 0 unsafe
+uv run flins eval --live     # the 42 normal situations against the real models (about $0.25)
+```
+
 Replay a scripted scenario through the real code (frozen clock, no WhatsApp):
 ```powershell
 uv run pytest tests/integration/test_replay.py -v
@@ -80,5 +98,5 @@ npm --prefix wa-sidecar test
 ```
 
 ## Milestones
-See SPEC §14. Done: **M0**, **M1**, **M2**. Next: **M3** (LLM triage and drafting, output guard,
-dashboard, eval set). Needs `ANTHROPIC_API_KEY`.
+See SPEC §14. Done: **M0**–**M3**. Next: **M4** (approvals from dashboard/self-chat, the outbox,
+and the first real sends, only after you turn off `dry_run` yourself).

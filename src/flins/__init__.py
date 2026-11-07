@@ -1,3 +1,3 @@
 """FLINS: local-first personal voice + WhatsApp assistant."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

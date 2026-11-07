@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import platform
 import shutil
 import subprocess
@@ -12,6 +13,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import uvicorn
 
 from flins import __version__
 from flins.adapters.baileys import BaileysAdapter, SidecarAuthError, SidecarBusyError
@@ -26,7 +29,12 @@ from flins.core.events import Event, EventBus
 from flins.core.ingest import ContactsResult, Ingestor, StoredMessage
 from flins.core.modes import ModeManager
 from flins.core.pipeline import Pipeline
+from flins.evaluation import load_cases, run_eval
+from flins.llm.gateway import CountingBackend
+from flins.llm.prompts import PromptError, load_prompt
 from flins.settings import Settings, find_root, load_settings
+from flins.web.app import create_app
+from flins.wiring import live_backend, make_brain
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
@@ -131,12 +139,20 @@ def cmd_doctor(root: Path | None) -> int:
         "WhatsApp paired" if sidecar.is_paired() else "WhatsApp not paired (flins wa pair)",
     )
 
+    for name in ("triage_v1", "draft_v1", "redflag_v1"):
+        try:
+            prompt = load_prompt(settings.prompts_dir, name)
+            _line(OK, f"prompt {prompt.version} ({prompt.model})")
+        except (OSError, PromptError) as exc:
+            _line(FAIL, f"prompt {name}: {exc}")
+            failed = True
+
     s = settings.secrets
     _line(
         OK if s.anthropic_api_key else WARN,
-        "ANTHROPIC_API_KEY set"
+        f"ANTHROPIC_API_KEY set (daily AI budget ${policy.limits.daily_llm_budget_usd:.2f})"
         if s.anthropic_api_key
-        else "ANTHROPIC_API_KEY not set (needed from M3)",
+        else "ANTHROPIC_API_KEY not set: FLINS decides without AI (no triage, no drafts)",
     )
     _line(
         OK if s.flins_wa_secret else WARN,
@@ -206,7 +222,11 @@ def _decision_line(d: dict[str, Any]) -> str:
         extra.append("rules: " + ", ".join(d["hard_rules"]))
     tail = f" ({'; '.join(extra)})" if extra else ""
     urgent = "  ⚠ URGENT" if d.get("escalate") else ""
-    return f"          -> {words} [{d['category']}]{tail}{urgent}"
+    line = f"          -> {words} [{d['category']}]{tail}{urgent}"
+    if d.get("draft"):
+        how = "would send" if d.get("would_send") else "draft, held back"
+        line += f"\n             {how}: {d['draft']}"
+    return line
 
 
 def _attach_printers(bus: EventBus) -> None:
@@ -262,22 +282,43 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
     code = 0
     modes: ModeManager | None = None
     ticker: asyncio.Task[None] | None = None
+    dashboard: uvicorn.Server | None = None
+    dashboard_task: asyncio.Task[None] | None = None
     if brain:
         clock = SystemClock()
         modes = await ModeManager.open(settings.db_path, bus, settings.policy, clock)
-        Pipeline(conn, bus, settings.policy, modes, clock)
+        ai = make_brain(settings, conn, clock)
+        pipeline = Pipeline(
+            conn,
+            bus,
+            settings.policy,
+            modes,
+            clock,
+            brain=ai,
+            tones=settings.tones,
+            debounce=True,
+        )
         SelfChatCommands(conn, bus, CommandRouter(modes, settings.policy, clock))
         _attach_printers(bus)
+        dashboard = _dashboard_server(settings)
+        dashboard_task = asyncio.create_task(dashboard.serve())
         print(f"FLINS running. {await modes.status_text()}")
+        print(f"Dashboard: http://127.0.0.1:{settings.app.network.dashboard_port}")
+        if ai is None:
+            print("No ANTHROPIC_API_KEY: FLINS decides without AI (no triage, no drafts).")
         print("Type commands in your WhatsApp 'Message yourself' chat, or use `flins mode` here.")
         print("Shadow mode: FLINS decides but never sends. Ctrl+C to stop.")
 
         async def tick_forever() -> None:
             assert modes is not None
             while True:
-                result = await modes.tick()
-                if result is not None:
-                    print(f"   FLINS: {result.readback}")
+                try:
+                    await pipeline.flush_due()
+                    result = await modes.tick()
+                    if result is not None:
+                        print(f"   FLINS: {result.readback}")
+                except Exception as exc:  # keep ticking; one bad burst must not stop expiry
+                    print(f"-- tick error: {type(exc).__name__}: {exc}")
                 await asyncio.sleep(1)
 
         ticker = asyncio.create_task(tick_forever())
@@ -306,6 +347,10 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
     finally:
         if ticker is not None:
             ticker.cancel()
+        if dashboard is not None:
+            dashboard.should_exit = True
+            if dashboard_task is not None:
+                await asyncio.gather(dashboard_task, return_exceptions=True)
         if spawned:
             await adapter.request_sidecar_shutdown()
         await adapter.close()
@@ -319,6 +364,54 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
             f"{counts['contacts']} new contacts stored."
         )
     return code
+
+
+def _dashboard_server(settings: Settings) -> uvicorn.Server:
+    port = settings.app.network.dashboard_port
+    app = create_app(settings.db_path, settings.policy, port=port)
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    return uvicorn.Server(config)
+
+
+def cmd_dashboard(root: Path | None) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    print(f"Dashboard: http://127.0.0.1:{settings.app.network.dashboard_port}  (Ctrl+C to stop)")
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(_dashboard_server(settings).serve())
+    return 0
+
+
+async def _eval(settings: Settings, live: bool, only: str | None) -> int:
+    cases = load_cases(settings.root / "tests" / "eval" / "whatsapp_cases.jsonl")
+    if only:
+        cases = [c for c in cases if only in c["id"]]
+    backend: CountingBackend | None = None
+    if live:
+        real = live_backend(settings)
+        if real is None:
+            print("`--live` needs ANTHROPIC_API_KEY in .env")
+            return 1
+        # Wrong/leaky recorded answers only make sense with recorded LLM output. Live runs
+        # use the real models on the 'good' situations.
+        cases = [c for c in cases if c.get("variant") == "good"]
+        backend = CountingBackend(real)
+        print(f"Live eval: {len(cases)} situations, up to {len(cases) * 3} Claude calls.")
+    report = await run_eval(
+        cases, settings.policy, settings.data_dir / "eval", settings.prompts_dir, backend
+    )
+    print(report.summary())
+    if backend is not None:
+        print(f"Claude calls: {backend.calls}, cost ≈ ${backend.cost:.3f}")
+    return 1 if report.unsafe else 0
+
+
+def cmd_eval(root: Path | None, live: bool, only: str | None) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_eval(settings, live, only))
 
 
 def cmd_live(root: Path | None, spawn: bool, *, brain: bool) -> int:
@@ -385,6 +478,10 @@ def build_parser() -> argparse.ArgumentParser:
     pair.add_argument("--force", action="store_true", help="replace an existing pairing")
     tail = wa_sub.add_parser("tail", help="store and show incoming messages live (read-only)")
     tail.add_argument("--no-spawn", action="store_true", help="don't start the sidecar")
+    sub.add_parser("dashboard", help="open the local dashboard without running FLINS")
+    ev = sub.add_parser("eval", help="run the WhatsApp safety eval (recorded LLM answers)")
+    ev.add_argument("--live", action="store_true", help="use the real Claude models (costs money)")
+    ev.add_argument("--only", default=None, help="only cases whose id contains this text")
     skills = sub.add_parser("skills", help="manage skills (M7)")
     skills.add_argument("args", nargs="*")
     return p
@@ -405,6 +502,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_mode(root, " ".join(args.args))
     if args.command in ("stop", "resume"):
         return cmd_mode(root, args.command)
+    if args.command == "dashboard":
+        return cmd_dashboard(root)
+    if args.command == "eval":
+        return cmd_eval(root, args.live, args.only)
     return _stub(args.command)
 
 

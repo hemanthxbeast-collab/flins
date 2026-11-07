@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block head %}<meta http-equiv="refresh" content="15">{% endblock %}
+{% block body %}
+<div class="card row">
+  <span>{% if dry_run %}<span class="chip">shadow mode: nothing is sent</span>{% endif %}
+  <span class="chip">AI today: {{ llm_calls }} calls, ${{ "%.3f"|format(cost) }}</span></span>
+  <span style="flex:1"></span>
+  {% for label, cmd, cls in [("Stop", "stop", "danger"), ("Resume", "resume", ""), ("I'm done", "I'm done", "")] %}
+  <form class="inline" method="post" action="/mode">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="text" value="{{ cmd }}">
+    <button class="{{ cls }}">{{ label }}</button>
+  </form>
+  {% endfor %}
+  <form class="inline" method="post" action="/mode">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="text" name="text" placeholder="working mood till 6pm" size="22">
+    <button>Set</button>
+  </form>
+</div>
+
+{% if not rows %}
+  <p class="muted">No decisions yet. Messages appear here as they arrive while <code>flins run</code> is running.</p>
+{% endif %}
+
+{% for r in rows %}
+<div class="card">
+  <div class="row">
+    <b>{{ r.who }}</b>{% if r.is_group %}<span class="chip">group</span>{% endif %}
+    <span class="chip">{{ r.contact_tier }}</span>
+    <span class="muted">{{ r.created_at[11:16] }} UTC · {{ r.mode|lower }}</span>
+    <span style="flex:1"></span>
+    {% if r.escalate %}<span class="urgent">URGENT</span>{% endif %}
+    <span class="lvl-{{ r.action }}">{{ r.words }}</span>
+    <a href="/decision/{{ r.id }}">why?</a>
+  </div>
+  <div>{{ r.texts }}</div>
+  <div class="muted" style="font-size:13px">
+    {{ r.category }}{% if r.hard_rule %} · rules: {{ r.hard_rule }}{% endif %}
+  </div>
+  {% if r.draft %}
+    <div class="draft {% if r.would_send %}send{% endif %}">{{ r.draft }}</div>
+    <div class="muted" style="font-size:13px">
+      {% if r.would_send %}would send{% else %}held back{% endif %}
+      {% if r.guard_failures %} · guard: {{ r.guard_failures|join("; ") }}{% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

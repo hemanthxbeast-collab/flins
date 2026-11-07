@@ -25,6 +25,9 @@ def project(tmp_path: Path) -> Path:
     shutil.copytree(
         REPO_ROOT / "config",
         tmp_path / "config",
-        ignore=shutil.ignore_patterns("flins.yaml", "policy.yaml", "contacts.yaml"),
+        ignore=shutil.ignore_patterns(
+            "flins.yaml", "policy.yaml", "contacts.yaml", "tone_profiles.yaml"
+        ),
     )
+    shutil.copytree(REPO_ROOT / "prompts", tmp_path / "prompts")
     return tmp_path

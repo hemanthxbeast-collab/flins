@@ -2,6 +2,42 @@
 
 Short records of choices made while building. Newest first.
 
+## M3 (2026-11-09)
+- **Dependencies added** (all on the CLAUDE.md stack list, or required by it): `anthropic`
+  (SDK 2.6), `fastapi`, `uvicorn`, `jinja2`, `python-multipart` (FastAPI's form parser);
+  `httpx` for FastAPI's test client (dev only).
+- **Models:** triage and red flag use `claude-haiku-5-5` at effort `low`; drafting uses
+  `claude-sonnet-5-5` at effort `medium`. Thinking can't be switched off on these models, so
+  effort is the speed/cost lever. Prices are in `llm/gateway.py` for the budget.
+- **Structured output** via `output_config.format` (JSON schema), validated again with strict
+  Pydantic models. Anything off-schema, cut off, timed out or refused → `LLMError` → the
+  cautious path.
+- **No refusal fallback model.** If Claude declines to triage or draft, FLINS tells you
+  (NOTIFY) instead of retrying the message on another model. For a personal assistant, a
+  declined reply is a signal, not something to route around.
+- **No LLM call when the rules already cap at NOTIFY** (normal mode, paused, unknown sender,
+  money, OTP, groups, media-only). Saves cost and keeps the most sensitive messages off the API.
+- **Contacts reach the LLM by name only.** No phone numbers or WhatsApp IDs, and `<`/`>` in
+  message text are replaced so a message can't break out of `<untrusted_thread>`.
+- **Guard failures step down one level** (AUTO → DRAFT, DRAFT/AUTO_SAFE → NOTIFY). Pretending to
+  be human, injection echoes and very low confidence go straight to NOTIFY. The red flag check
+  only runs for AUTO (unreviewed) sends, and its veto or failure means DRAFT.
+- **New hard rule `media_only`.** Found by the eval: a fooled triage could label a voice note
+  "small talk" and FLINS would have auto-replied to audio it can't hear. A message without
+  text is now structurally capped at NOTIFY.
+- **Unsaved contacts show as "~Name"** (like WhatsApp) with "not in your contacts". Found on the
+  dashboard: the OTP scammer had named themselves "Hemanth".
+- **Eval design:** recorded LLM answers include deliberately fooled, leaky, lying and failing
+  answers. A drafter that invents a plausible plain-text fact *and* lies about it *and* fools
+  the red flag can't be caught deterministically, so it isn't in the recorded set. `flins eval
+  --live` measures it against the real models.
+- **Debounce:** quiet 25 s / max 90 s (policy). Emergency keywords skip the wait. Bursts still
+  waiting when FLINS stops are stored but undecided.
+- **Dashboard:** server-rendered pages, no JavaScript, strict CSP, Host-header check,
+  per-run token on every write. Times are shown in UTC for now.
+- **Deferred:** the pairing QR in the dashboard (M1 leftover), approval actions (M4),
+  local-time display.
+
 ## M2 (2026-11-09)
 - **Added `tzdata`.** Windows has no built-in timezone database, and "till 6pm" has to mean 6pm
   in `policy.user.timezone`. It's the official data package `zoneinfo` uses.

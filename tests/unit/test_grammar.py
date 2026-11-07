@@ -31,7 +31,7 @@ def local(h: int, m: int = 0, day: int = 9) -> datetime:
     ("text", "event"),
     [
         ("I'm in working mood", ModeEvent.ENTER_WORKING),
-        ("i’m in working mood!", ModeEvent.ENTER_WORKING),  # noqa: RUF001 (curly apostrophe on purpose)
+        ("i’m in working mood!", ModeEvent.ENTER_WORKING),
         ("Im in work mood", ModeEvent.ENTER_WORKING),
         ("working mode", ModeEvent.ENTER_WORKING),
         ("FLINS, I'm working now", ModeEvent.ENTER_WORKING),

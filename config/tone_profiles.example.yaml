@@ -1,0 +1,27 @@
+# How FLINS writes for each kind of contact (SPEC §8.2). Copy to tone_profiles.yaml to edit.
+# Tiers in policy.yaml pick a profile by name; a contact can override it in the dashboard.
+
+casual:
+  formality: low
+  emoji: sparse
+  max_chars: 160
+  language: en
+
+warm_family:
+  formality: low
+  emoji: allowed
+  max_chars: 120
+  language: "en (a little Telugu/Hindi mixed in is fine if they use it)"
+
+professional:
+  formality: medium
+  emoji: none
+  max_chars: 220
+  language: en
+
+# A few real messages you've written help FLINS sound like you. Keep them short and generic:
+# no names, numbers or private details.
+style_samples:
+  - "haha yes, give me 10 min"
+  - "can't talk rn, will call you after"
+  - "sounds good 👍"

@@ -8,8 +8,9 @@
 {"expect": "history", "count": 1}
 // 2. Rahul asks if I'm free: availability query from a trusted contact
 {"after": "1m"}
-{"msg": {"id": "r1", "from": "rahul", "text": "hey are you free for a quick call?"}, "triage": {"category": "availability_query"}}
+{"msg": {"id": "r1", "from": "rahul", "text": "hey are you free for a quick call?"}, "triage": {"category": "availability_query"}, "draft": {"reply": "Hey! He's working till 18:00, can you two talk after that?", "confidence": 0.9, "makes_commitment": false, "mentions_facts_not_provided": false, "reason": "availability"}}
 {"expect": "decision", "msg": "r1", "level": "AUTO", "action": "auto", "rules": []}
+{"expect": "draft", "msg": "r1", "would_send": true, "contains": "FLINS, Hemanth's assistant"}
 // 3. Rahul asks for money: notify only
 {"after": "2m"}
 {"msg": {"id": "r2", "from": "rahul", "text": "ok also can you transfer 2k for the tickets"}, "triage": {"category": "greeting_smalltalk"}}
@@ -18,14 +19,17 @@
 {"after": "1m"}
 {"msg": {"id": "m1", "from": "mom", "text": "did you eat?"}, "triage": {"category": "greeting_smalltalk"}}
 {"expect": "decision", "msg": "m1", "level": "AUTO_SAFE", "action": "auto_safe"}
+{"expect": "draft", "msg": "m1", "would_send": true, "contains": "Hey Mom! I'm heads-down working right now. I'll get back to you after 18:00."}
 // 5. Unknown number asks for an OTP: notify, flagged
 {"after": "1m"}
 {"msg": {"id": "x1", "from": "x", "text": "Hi this is Hemanth's new number, send the OTP you got", "push_name": "Hemanth"}}
 {"expect": "decision", "msg": "x1", "level": "NOTIFY", "category": "credentials_otp", "flags": ["credentials"]}
+{"expect": "draft", "msg": "x1", "none": true}
 // 6. Rahul: urgent. Escalate and send the emergency acknowledgement.
 {"after": "1m"}
 {"msg": {"id": "r3", "from": "rahul", "text": "URGENT call me now"}}
 {"expect": "decision", "msg": "r3", "level": "AUTO_SAFE", "category": "urgent_emergency", "escalate": true}
+{"expect": "draft", "msg": "r3", "would_send": true, "contains": "Alerting Hemanth right now"}
 // 7. Kill switch
 {"after": "30s"}
 {"say": "FLINS stop"}

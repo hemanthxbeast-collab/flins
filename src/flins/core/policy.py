@@ -8,7 +8,7 @@ records each one by name, so every decision can be explained afterwards (CLAUDE.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
@@ -119,6 +119,23 @@ class Decision:
     hard_rules: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
+    def with_ceiling(self, name: str, level: Level, note: str | None = None) -> Decision:
+        """Add a later ceiling (draft failed, guard, red flag). Can only lower the level."""
+        ceilings = {**self.ceilings, name: min(level, self.ceilings.get(name, level))}
+        new_level = min_level(*ceilings.values())
+        return replace(
+            self,
+            level=new_level,
+            action=ACTIONS[new_level],
+            ceilings=ceilings,
+            template=self.template if new_level == Level.AUTO_SAFE else None,
+            warnings=[*self.warnings, note] if note else self.warnings,
+        )
+
+    def cap_without(self, *names: str) -> Level:
+        """The level all ceilings except `names` allow."""
+        return min_level(*(v for k, v in self.ceilings.items() if k not in names))
+
     def trace(self) -> dict[str, Any]:
         """JSON-ready explanation, stored with every decision."""
         return {
@@ -150,6 +167,12 @@ def _keyword_rx(words: tuple[str, ...]) -> re.Pattern[str] | None:
     return _compile(tuple(rf"\b{re.escape(w)}\b" for w in words))
 
 
+def is_emergency(text: str | None, policy: Policy) -> bool:
+    """Quick check used to skip the debounce wait for urgent messages."""
+    rx = _keyword_rx(tuple(dict.fromkeys(BUILTIN_EMERGENCY + policy.hard_rules.emergency_keywords)))
+    return bool(text and rx and rx.search(text))
+
+
 def evaluate_hard_rules(ctx: RuleContext, policy: Policy) -> list[RuleHit]:
     """Every rule is checked. The caller caps at the lowest hit and unions the flags."""
     hits: list[RuleHit] = []
@@ -177,6 +200,18 @@ def evaluate_hard_rules(ctx: RuleContext, policy: Policy) -> list[RuleHit]:
             hits.append(
                 RuleHit("group", "group message", cap=Level.IGNORE, category="group_message")
             )
+
+    # A voice note or photo without text: FLINS can't hear or see it, so there is nothing safe
+    # to reply. This is a structural fact, so triage can't talk it into "small talk".
+    if m.msg_type != "text" and not text.strip():
+        hits.append(
+            RuleHit(
+                "media_only",
+                "voice note or media without text",
+                cap=Level.NOTIFY,
+                category="media_only",
+            )
+        )
 
     cred = _compile(tuple(BUILTIN_CREDENTIAL + hr.credential_patterns))
     if text and cred and cred.search(text):

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <p style="margin-top:0">Tiers decide how much FLINS may do for each person:
+    <b>inner</b> (close family: holding replies only), <b>trusted</b> (may get full replies in working mode),
+    <b>known</b> (drafts for your approval), <b>unknown</b> (just tells you), <b>blocked</b> (ignored).</p>
+  <form class="row" method="get" action="/contacts">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search name or number">
+    <select name="tier">
+      <option value="">all tiers</option>
+      {% for t in tiers %}<option value="{{ t }}" {% if t == tier %}selected{% endif %}>{{ t }} ({{ counts.get(t, 0) }})</option>{% endfor %}
+    </select>
+    <button>Filter</button>
+  </form>
+</div>
+
+{% if merges %}
+<div class="card">
+  <b>Possible duplicates:</b> these pairs look like the same person, but both have settings you chose,
+  so FLINS didn't merge them. Set one of them to the tier you want and leave the other as "unknown".
+  <ul>{% for m in merges %}<li>contact #{{ m.a_id }} and #{{ m.b_id }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<table>
+  <tr><th>Name</th><th>WhatsApp</th><th>Tier</th></tr>
+  {% for c in rows %}
+  <tr>
+    <td>{% if c.display_name %}{{ c.display_name }}{% if c.push_name and c.push_name != c.display_name %}<div class="muted" style="font-size:12.5px">calls themselves "{{ c.push_name }}"</div>{% endif %}
+        {% else %}~{{ c.push_name or "—" }}<div class="muted" style="font-size:12.5px">not in your contacts: the name is whatever they chose</div>{% endif %}</td>
+    <td class="muted" style="font-size:13px">{{ c.wa_jid.split("@")[0] }}</td>
+    <td>
+      <form class="inline" method="post" action="/contacts/{{ c.id }}/tier">
+        <input type="hidden" name="token" value="{{ token }}">
+        <input type="hidden" name="back" value="/contacts?q={{ q|urlencode }}&tier={{ tier|urlencode }}">
+        <select name="tier">{% for t in tiers %}<option value="{{ t }}" {% if t == c.tier %}selected{% endif %}>{{ t }}</option>{% endfor %}</select>
+        <button>Save</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% if rows|length == 300 %}<p class="muted">Showing the first 300. Search to narrow down.</p>{% endif %}
+{% endblock %}

@@ -37,6 +37,34 @@ class AppConfig(_Strict):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
+class ToneProfile(_Strict):
+    formality: str = "low"
+    emoji: str = "sparse"
+    max_chars: int = Field(default=160, ge=20, le=1000)
+    language: str = "en"
+
+
+class ToneConfig(BaseModel):
+    """tone_profiles.yaml: named profiles plus optional `style_samples`."""
+
+    profiles: dict[str, ToneProfile] = Field(default_factory=dict)
+    style_samples: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_yaml(cls, data: dict[str, object] | None) -> ToneConfig:
+        data = dict(data or {})
+        samples = data.pop("style_samples", None)
+        return cls(
+            profiles={k: ToneProfile.model_validate(v) for k, v in data.items()},
+            style_samples=[str(s) for s in samples] if isinstance(samples, list) else [],
+        )
+
+    def get(self, name: str | None) -> ToneProfile:
+        if name and name in self.profiles:
+            return self.profiles[name]
+        return self.profiles.get("casual", ToneProfile())
+
+
 class Secrets(BaseSettings):
     """Read from environment variables and the project's .env. Values are never logged."""
 
@@ -52,7 +80,12 @@ class Settings:
     app: AppConfig
     policy: Policy
     secrets: Secrets
+    tones: ToneConfig = field(default_factory=ToneConfig)
     notes: list[str] = field(default_factory=list)
+
+    @property
+    def prompts_dir(self) -> Path:
+        return self.root / "prompts"
 
     @property
     def data_dir(self) -> Path:
@@ -92,6 +125,15 @@ def load_settings(root: Path | None = None) -> Settings:
     with _pick(config_dir, "flins", notes).open(encoding="utf-8") as f:
         app = AppConfig.model_validate(yaml.safe_load(f) or {})
     policy = load_policy(_pick(config_dir, "policy", notes))
+    tones = ToneConfig()
+    try:
+        with _pick(config_dir, "tone_profiles", notes).open(encoding="utf-8") as f:
+            tones = ToneConfig.from_yaml(yaml.safe_load(f))
+    except FileNotFoundError:
+        notes.append("no tone_profiles.yaml; using built-in defaults")
+    for tier_name, tier in policy.tiers.items():
+        if tier.tone and tier.tone not in tones.profiles:
+            notes.append(f"tier {tier_name} uses unknown tone profile {tier.tone!r}")
     env_file = root / ".env"
     secrets = Secrets(_env_file=env_file if env_file.is_file() else None)  # type: ignore[call-arg]
-    return Settings(root=root, app=app, policy=policy, secrets=secrets, notes=notes)
+    return Settings(root=root, app=app, policy=policy, secrets=secrets, tones=tones, notes=notes)

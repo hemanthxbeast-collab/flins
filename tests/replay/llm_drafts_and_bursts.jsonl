@@ -1,0 +1,48 @@
+{"start": "2026-11-09T11:00:00+05:30", "debounce": true, "me": "919000000000@s.whatsapp.net", "contacts": [{"alias": "rahul", "pn": "919111111111@s.whatsapp.net", "name": "Rahul", "tier": "trusted"}, {"alias": "neha", "pn": "919555555555@s.whatsapp.net", "name": "Neha", "tier": "known"}]}
+// M3: bursts, drafts, guard and red flag. Recorded LLM answers, including bad ones.
+{"say": "working mood till 5pm"}
+// Three quick messages become one burst and one decision
+{"msg": {"id": "b1", "from": "rahul", "text": "hey"}}
+{"after": "5s"}
+{"msg": {"id": "b2", "from": "rahul", "text": "you free?"}}
+{"after": "5s"}
+{"msg": {"id": "b3", "from": "rahul", "text": "for a quick call"}, "triage": {"category": "availability_query"}, "draft": {"reply": "Hey Rahul! He's working till 17:00, he'll reply after.", "confidence": 0.9, "makes_commitment": false, "mentions_facts_not_provided": false, "reason": "ok"}}
+{"tick": true}
+{"expect": "decision", "msg": "b3", "none": true}
+{"after": "30s"}
+{"tick": true}
+{"expect": "decision", "msg": "b3", "level": "AUTO"}
+{"expect": "decision", "msg": "b1", "none": true}
+{"expect": "draft", "msg": "b3", "would_send": true, "contains": "17:00"}
+// An urgent message skips the wait
+{"after": "10m"}
+{"msg": {"id": "u1", "from": "rahul", "text": "emergency, call me"}}
+{"expect": "decision", "msg": "u1", "escalate": true, "level": "AUTO_SAFE"}
+// A leaky draft (phone number) is held back as a draft for approval, never sent
+{"after": "10m"}
+{"msg": {"id": "l1", "from": "rahul", "text": "what's priya's number?"}, "triage": {"category": "info_request_simple"}, "draft": {"reply": "It's +91 98765 43210", "confidence": 0.95, "makes_commitment": false, "mentions_facts_not_provided": false, "reason": "asked"}}
+{"tick": true}
+{"after": "30s"}
+{"tick": true}
+{"expect": "decision", "msg": "l1", "level": "NOTIFY"}
+{"expect": "draft", "msg": "l1", "would_send": false}
+// The red flag check can veto an unreviewed send (it becomes a draft for approval)
+{"after": "10m"}
+{"msg": {"id": "f1", "from": "rahul", "text": "lol ok"}, "triage": {"category": "greeting_smalltalk"}, "draft": {"reply": "Haha sure!", "confidence": 0.9, "makes_commitment": false, "mentions_facts_not_provided": false, "reason": "ok"}, "redflag": {"safe": false, "reason": "tone mismatch"}}
+{"after": "30s"}
+{"tick": true}
+{"expect": "decision", "msg": "f1", "level": "DRAFT"}
+{"expect": "draft", "msg": "f1", "would_send": false}
+// The drafter declines: FLINS just tells you
+{"after": "10m"}
+{"msg": {"id": "d1", "from": "neha", "text": "are we still on for the thing?"}, "triage": {"category": "scheduling"}, "draft": {"reply": "", "confidence": 0.2, "makes_commitment": false, "mentions_facts_not_provided": false, "reason": "needs Hemanth's own answer"}}
+{"after": "30s"}
+{"tick": true}
+{"expect": "decision", "msg": "d1", "level": "NOTIFY"}
+// Known contact, scheduling: a draft for approval
+{"after": "10m"}
+{"msg": {"id": "d2", "from": "neha", "text": "can we meet tomorrow?"}, "triage": {"category": "scheduling"}, "draft": {"reply": "Hi Neha, he's working till 17:00 and will get back to you after.", "confidence": 0.8, "makes_commitment": false, "mentions_facts_not_provided": false, "reason": "ok"}}
+{"after": "30s"}
+{"tick": true}
+{"expect": "decision", "msg": "d2", "level": "DRAFT"}
+{"expect": "draft", "msg": "d2", "would_send": false, "contains": "Hi Neha"}
