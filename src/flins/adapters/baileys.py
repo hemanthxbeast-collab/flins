@@ -54,6 +54,7 @@ class BaileysAdapter:
         self._ws: ClientConnection | None = None
         self._closed = False
         self._wa_state: WAState = "sidecar_down"
+        self._pending: dict[str, asyncio.Future[SendResult]] = {}
 
     async def events(self) -> AsyncIterator[AdapterEvent]:
         """Yield verified events forever, reconnecting to the sidecar if it drops."""
@@ -76,6 +77,9 @@ class BaileysAdapter:
                         busy_count = 0
                         try:
                             body = verifier.verify(raw)
+                            if body.kind == "send.result":
+                                self._resolve_send(body.payload)
+                                continue
                             event = parse_event(body.kind, body.payload)
                         except (ProtocolError, ValidationError) as exc:
                             # Never act on a frame we can't verify. Log the reason, not the content.
@@ -114,10 +118,46 @@ class BaileysAdapter:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, self._reconnect_max)
 
+    def _resolve_send(self, payload: dict[str, object]) -> None:
+        fut = self._pending.pop(str(payload.get("client_msg_id", "")), None)
+        if fut is not None and not fut.done():
+            wa_id = payload.get("wa_msg_id")
+            error = payload.get("error")
+            fut.set_result(
+                SendResult(
+                    ok=bool(payload.get("ok")),
+                    wa_msg_id=str(wa_id) if wa_id else None,
+                    error=str(error) if error else None,
+                )
+            )
+
     async def send_text(
-        self, chat_id: str, text: str, *, quote: str | None, client_msg_id: str
+        self,
+        chat_id: str,
+        text: str,
+        *,
+        quote: str | None,
+        client_msg_id: str,
+        timeout_s: float = 45.0,
     ) -> SendResult:
-        raise NotImplementedError("sending arrives in M4, and only through the Outbox")
+        """Ask the sidecar to send. Only the Outbox may call this (CLAUDE.md invariant 2)."""
+        ws = self._ws
+        if ws is None or self._wa_state != "open":
+            return SendResult(ok=False, error="WhatsApp is not connected")
+        fut: asyncio.Future[SendResult] = asyncio.get_running_loop().create_future()
+        self._pending[client_msg_id] = fut
+        payload = {"chat_jid": chat_id, "text": text, "client_msg_id": client_msg_id}
+        if quote:
+            payload["quoted_id"] = quote
+        try:
+            await ws.send(sign_frame(self._secret, "send_text", payload))
+            return await asyncio.wait_for(fut, timeout_s)
+        except TimeoutError:
+            return SendResult(ok=False, error="no answer from the sidecar (state unknown)")
+        except ConnectionClosed:
+            return SendResult(ok=False, error="sidecar connection closed (state unknown)")
+        finally:
+            self._pending.pop(client_msg_id, None)
 
     async def ping(self) -> None:
         if self._ws is not None:

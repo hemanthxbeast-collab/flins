@@ -21,6 +21,7 @@ from flins.adapters.baileys import BaileysAdapter, SidecarAuthError, SidecarBusy
 from flins.adapters.base import ConnectionChanged, SidecarHello
 from flins.adapters.protocol import MIN_SECRET_LENGTH
 from flins.adapters.sidecar_proc import Sidecar, SidecarSetupError, port_open
+from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import SystemClock
 from flins.core.commands import CommandRouter, SelfChatCommands
@@ -28,13 +29,16 @@ from flins.core.db import connect, migrate, table_names
 from flins.core.events import Event, EventBus
 from flins.core.ingest import ContactsResult, Ingestor, StoredMessage
 from flins.core.modes import ModeManager
+from flins.core.outbox import OutboxWorker
 from flins.core.pipeline import Pipeline
+from flins.core.selfchat import SelfChatNotifier
 from flins.evaluation import load_cases, run_eval
-from flins.llm.gateway import CountingBackend
+from flins.llm.admin import list_models, status_lines, test_routes
+from flins.llm.gateway import LLMError
 from flins.llm.prompts import PromptError, load_prompt
 from flins.settings import Settings, find_root, load_settings
 from flins.web.app import create_app
-from flins.wiring import live_backend, make_brain
+from flins.wiring import build_router, make_brain
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
@@ -139,7 +143,7 @@ def cmd_doctor(root: Path | None) -> int:
         "WhatsApp paired" if sidecar.is_paired() else "WhatsApp not paired (flins wa pair)",
     )
 
-    for name in ("triage_v1", "draft_v1", "redflag_v1"):
+    for name in ("triage", "draft", "redflag"):
         try:
             prompt = load_prompt(settings.prompts_dir, name)
             _line(OK, f"prompt {prompt.version} ({prompt.model})")
@@ -148,12 +152,17 @@ def cmd_doctor(root: Path | None) -> int:
             failed = True
 
     s = settings.secrets
-    _line(
-        OK if s.anthropic_api_key else WARN,
-        f"ANTHROPIC_API_KEY set (daily AI budget ${policy.limits.daily_llm_budget_usd:.2f})"
-        if s.anthropic_api_key
-        else "ANTHROPIC_API_KEY not set: FLINS decides without AI (no triage, no drafts)",
-    )
+    router, problems = build_router(settings)
+    for role, chain in router.describe().items():
+        usable = [c for c in chain if not c.endswith("(no key)")]
+        _line(OK if usable else WARN, f"AI {role}: {' -> '.join(chain) or 'nothing configured'}")
+    if router.missing_roles():
+        _line(WARN, "some AI jobs have no provider with a key: FLINS decides without AI")
+    else:
+        _line(OK, f"daily AI budget ${policy.limits.daily_llm_budget_usd:.2f}")
+    for problem in problems:
+        _line(FAIL, f"flins.yaml llm: {problem}")
+        failed = True
     _line(
         OK if s.flins_wa_secret else WARN,
         "FLINS_WA_SECRET set" if s.flins_wa_secret else "FLINS_WA_SECRET not set (needed from M1)",
@@ -226,6 +235,11 @@ def _decision_line(d: dict[str, Any]) -> str:
     if d.get("draft"):
         how = "would send" if d.get("would_send") else "draft, held back"
         line += f"\n             {how}: {d['draft']}"
+        if d.get("approval"):
+            n = d["approval"]
+            line += (
+                f"\n             to send it: y{n} in your self-chat, or Approve on the dashboard"
+            )
     return line
 
 
@@ -247,6 +261,26 @@ def _attach_printers(bus: EventBus) -> None:
     bus.subscribe("command.reply", on_reply)
     bus.subscribe("mode.changed", on_mode)
     bus.subscribe("mode.expiring", on_expiring)
+
+    async def on_outbox(e: Event) -> None:
+        d = e.data
+        words = {
+            "sent": "SENT",
+            "dry_run": "not sent (dry run is on)",
+            "failed": "NOT sent",
+            "cancelled": "cancelled",
+        }.get(d["status"], d["status"])
+        extra = f": {d['error']}" if d.get("error") else ""
+        if d.get("kind") == "self" and d["status"] == "sent":
+            return  # notes to your self-chat: don't clutter the terminal
+        what = {"auto": "holding reply", "self": "self-chat note"}.get(d.get("kind", ""), "reply")
+        print(f"   OUTBOX #{d['outbox_id']} ({what}) -> {words}{extra}")
+
+    async def on_cancelled(e: Event) -> None:
+        print(f"   OUTBOX: cancelled {e.data['count']} queued message(s) because FLINS was paused")
+
+    bus.subscribe("outbox.update", on_outbox)
+    bus.subscribe("outbox.cancelled", on_cancelled)
 
 
 async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
@@ -296,27 +330,50 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool) -> int:
             clock,
             brain=ai,
             tones=settings.tones,
+            about=settings.about,
             debounce=True,
         )
-        SelfChatCommands(conn, bus, CommandRouter(modes, settings.policy, clock))
+        approvals = ApprovalService(conn, settings.policy)
+        outbox = OutboxWorker(conn, settings.policy, adapter, clock, bus)
+        SelfChatCommands(conn, bus, CommandRouter(modes, settings.policy, clock, approvals))
+        notifier = SelfChatNotifier(conn, bus, settings.policy, clock, lambda: ingest.me)
         _attach_printers(bus)
         dashboard = _dashboard_server(settings)
         dashboard_task = asyncio.create_task(dashboard.serve())
         print(f"FLINS running. {await modes.status_text()}")
         print(f"Dashboard: http://127.0.0.1:{settings.app.network.dashboard_port}")
         if ai is None:
-            print("No ANTHROPIC_API_KEY: FLINS decides without AI (no triage, no drafts).")
+            missing = build_router(settings)[0].missing_roles()
+            print(
+                f"No AI provider with a key for: {', '.join(missing)}. FLINS decides without AI "
+                "(no triage, no drafts). See `flins llm status`."
+            )
         print("Type commands in your WhatsApp 'Message yourself' chat, or use `flins mode` here.")
-        print("Shadow mode: FLINS decides but never sends. Ctrl+C to stop.")
+        print(
+            "Dry run: nothing is sent, even when you approve."
+            if settings.policy.dry_run
+            else (
+                "SENDING IS ON: drafts you approve are sent"
+                + (
+                    ", and holding replies go out automatically in busy modes."
+                    if settings.policy.auto_replies == "holding_only"
+                    else ". Automatic replies are off."
+                )
+            )
+        )
+        print("Ctrl+C to stop.")
 
         async def tick_forever() -> None:
             assert modes is not None
             while True:
                 try:
                     await pipeline.flush_due()
+                    await approvals.expire_due(clock.now())
+                    await outbox.run_due()
                     result = await modes.tick()
                     if result is not None:
                         print(f"   FLINS: {result.readback}")
+                        await notifier.note(result.readback)  # e.g. the session summary
                 except Exception as exc:  # keep ticking; one bad burst must not stop expiry
                     print(f"-- tick error: {type(exc).__name__}: {exc}")
                 await asyncio.sleep(1)
@@ -383,35 +440,84 @@ def cmd_dashboard(root: Path | None) -> int:
     return 0
 
 
-async def _eval(settings: Settings, live: bool, only: str | None) -> int:
+async def _eval(settings: Settings, live: bool, only: str | None, provider: str | None) -> int:
     cases = load_cases(settings.root / "tests" / "eval" / "whatsapp_cases.jsonl")
     if only:
         cases = [c for c in cases if only in c["id"]]
-    backend: CountingBackend | None = None
-    if live:
-        real = live_backend(settings)
-        if real is None:
-            print("`--live` needs ANTHROPIC_API_KEY in .env")
+    factory = None
+    if live or provider:
+        router, _ = build_router(settings, provider)
+        missing = router.missing_roles()
+        if missing:
+            who = f"provider {provider!r}" if provider else "the configured providers"
+            print(
+                f"`--live`: no key/route for {', '.join(missing)} with {who}. "
+                "See `flins llm status`."
+            )
             return 1
         # Wrong/leaky recorded answers only make sense with recorded LLM output. Live runs
         # use the real models on the 'good' situations.
         cases = [c for c in cases if c.get("variant") == "good"]
-        backend = CountingBackend(real)
-        print(f"Live eval: {len(cases)} situations, up to {len(cases) * 3} Claude calls.")
+        chain = router.describe()
+        print(f"Live eval: {len(cases)} situations, up to {len(cases) * 3} AI calls.")
+        for role, routes_ in chain.items():
+            print(f"  {role}: {' -> '.join(routes_)}")
+
+        def factory(conn: Any, clock: Any) -> Any:
+            return make_brain(settings, conn, clock, only=provider)
+
     report = await run_eval(
-        cases, settings.policy, settings.data_dir / "eval", settings.prompts_dir, backend
+        cases,
+        settings.policy,
+        settings.data_dir / "eval",
+        settings.prompts_dir,
+        brain_factory=factory,
     )
-    print(report.summary())
-    if backend is not None:
-        print(f"Claude calls: {backend.calls}, cost ≈ ${backend.cost:.3f}")
+    print(report.summary(show_usage=factory is not None))
     return 1 if report.unsafe else 0
 
 
-def cmd_eval(root: Path | None, live: bool, only: str | None) -> int:
+def cmd_eval(root: Path | None, live: bool, only: str | None, provider: str | None) -> int:
     settings = _load(root)
     if settings is None:
         return 1
-    return asyncio.run(_eval(settings, live, only))
+    return asyncio.run(_eval(settings, live, only, provider))
+
+
+async def _llm(settings: Settings, action: str, provider: str | None) -> int:
+    if action == "status":
+        print("\n".join(status_lines(settings)))
+        return 0
+    if action == "models":
+        if not provider:
+            print("usage: flins llm models <provider>   e.g. groq, gemini, nvidia, anthropic")
+            return 2
+        try:
+            for model in await list_models(settings, provider):
+                print(model)
+        except LLMError as exc:
+            print(f"{provider}: {exc}")
+            return 1
+        return 0
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    try:
+        results = await test_routes(settings, conn, SystemClock(), provider)
+    finally:
+        await conn.close()
+    if not results:
+        print("Nothing to test: no provider with a key. See `flins llm status`.")
+        return 1
+    for r in results:
+        print(f"  [{'ok' if r.ok else 'FAIL':>4}] {r.route:<50} {r.ms:>5} ms  {r.detail}")
+    return 0 if all(r.ok for r in results) else 1
+
+
+def cmd_llm(root: Path | None, action: str, provider: str | None) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_llm(settings, action, provider))
 
 
 def cmd_live(root: Path | None, spawn: bool, *, brain: bool) -> int:
@@ -480,14 +586,28 @@ def build_parser() -> argparse.ArgumentParser:
     tail.add_argument("--no-spawn", action="store_true", help="don't start the sidecar")
     sub.add_parser("dashboard", help="open the local dashboard without running FLINS")
     ev = sub.add_parser("eval", help="run the WhatsApp safety eval (recorded LLM answers)")
-    ev.add_argument("--live", action="store_true", help="use the real Claude models (costs money)")
+    ev.add_argument("--live", action="store_true", help="use the real AI models (costs money)")
+    ev.add_argument("--provider", default=None, help="live, with only this provider (e.g. groq)")
     ev.add_argument("--only", default=None, help="only cases whose id contains this text")
+    llm = sub.add_parser("llm", help="AI providers: status, test, models <provider>")
+    llm.add_argument("action", nargs="?", default="status", choices=["status", "test", "models"])
+    llm.add_argument("provider", nargs="?", default=None)
     skills = sub.add_parser("skills", help="manage skills (M7)")
     skills.add_argument("args", nargs="*")
     return p
 
 
+def _utf8_console() -> None:
+    """Windows consoles and pipes may default to cp1252, which can't print emoji from WhatsApp
+    messages (or "≈"). Print UTF-8 and replace anything a terminal still can't show."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _utf8_console()
     args = build_parser().parse_args(argv)
     root = find_root(args.root.resolve()) if args.root else None
     if args.command == "doctor":
@@ -505,7 +625,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "dashboard":
         return cmd_dashboard(root)
     if args.command == "eval":
-        return cmd_eval(root, args.live, args.only)
+        return cmd_eval(root, args.live, args.only, args.provider)
+    if args.command == "llm":
+        return cmd_llm(root, args.action, args.provider)
     return _stub(args.command)
 
 

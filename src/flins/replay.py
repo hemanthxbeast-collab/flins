@@ -111,9 +111,9 @@ async def run_script(steps: list[dict[str, Any]], db_path: Path, policy: Policy)
     gateway = LLMGateway(backend, conn, clock, daily_budget_usd=1.0, tz=tz)
     brain = Brain(
         gateway=gateway,
-        triager=Triager(gateway, load_prompt(PROMPTS_DIR, "triage_v1"), []),
-        drafter=Drafter(gateway, load_prompt(PROMPTS_DIR, "draft_v1")),
-        redflag=RedFlagChecker(gateway, load_prompt(PROMPTS_DIR, "redflag_v1")),
+        triager=Triager(gateway, load_prompt(PROMPTS_DIR, "triage"), []),
+        drafter=Drafter(gateway, load_prompt(PROMPTS_DIR, "draft")),
+        redflag=RedFlagChecker(gateway, load_prompt(PROMPTS_DIR, "redflag")),
     )
     modes = await ModeManager.open(db_path, bus, policy, clock)
     router = CommandRouter(modes, policy, clock)

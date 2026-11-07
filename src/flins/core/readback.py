@@ -13,12 +13,13 @@ if TYPE_CHECKING:
     from flins.core.modes import ModeEvent, ModeState
 
 ACTION_WORDS = {
-    "auto": "would be answered automatically",
-    "auto_safe": "would get a holding reply",
-    "draft": "would wait for your approval",
+    "auto": "drafted for your approval",
+    "auto_safe": "got a holding reply",
+    "draft": "drafted for your approval",
     "notify": "flagged for you",
     "ignore": "ignored",
 }
+MAX_ITEMS = 10
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class Debrief:
     actions: dict[str, int] = field(default_factory=dict)
     escalations: int = 0
     suspicious: int = 0
+    items: tuple[str, ...] = ()  # one line per message, urgent first
 
     @property
     def total(self) -> int:
@@ -65,6 +67,11 @@ def _debrief_text(d: Debrief) -> str:
         text += f" {d.escalations} marked urgent."
     if d.suspicious:
         text += f" {d.suspicious} looked like a scam (asked for a code or password)."
+    if d.items:
+        shown = list(d.items[:MAX_ITEMS])
+        if len(d.items) > MAX_ITEMS:
+            shown.append(f"…and {len(d.items) - MAX_ITEMS} more on the dashboard.")
+        text += "\n" + "\n".join(f"• {line}" for line in shown)
     return text
 
 

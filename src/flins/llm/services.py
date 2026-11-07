@@ -64,6 +64,10 @@ class Triager:
         self._prompt = prompt
         self._categories = sorted(set(categories) | {"unknown"})
 
+    @property
+    def prompt_version(self) -> str:
+        return self._prompt.version
+
     async def classify(
         self, *, conversation: str, mode_line: str, contact_name: str, tier: str
     ) -> TriageResult:

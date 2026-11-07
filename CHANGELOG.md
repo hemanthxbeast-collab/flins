@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.5.0: M5 automatic holding replies, FLINS in your self-chat (2026-11-09)
+- In working / focus / away mode, your holding-reply template goes out by itself to the contacts
+  the policy allows: once per chat per session, after 20–90 s, never if you've replied yourself,
+  and cancelled when you leave the mode or say stop. `auto_replies: off` to disable.
+- FLINS answers commands, asks for approvals (`y3` / `n3` / `e3 text`), raises urgent alerts and
+  sends the session summary inside your WhatsApp "Message yourself" chat.
+- Session summary: one line per message with what FLINS did, urgent first.
+- Dashboard shows "sent automatically".
+- Tests: 508 Python, 9 Node.
+
+## 0.4.1: Replies that answer the message (2026-11-09)
+- New draft prompt (v2): answers questions, wishes and small talk, and mentions availability
+  only when relevant.
+- `config/about_me.yaml`: facts FLINS may share, per tier. Nothing is shared by default.
+- Guard: holds back drafts that write as if they were you, or that say you're free while a busy
+  mode is on.
+- Prompts load by job name, newest version first.
+- Tests: 493 Python, 9 Node.
+
+## 0.4.0: M4 approvals and sending (2026-11-09)
+- Approve, edit or reject drafts from the dashboard or your WhatsApp self-chat (`y3`, `n3`,
+  `e3 text`, `pending`). Approved drafts are sent; nothing else is.
+- Outbox: the only sender, re-checking pause, dry run, 24-hour contact window, caps and
+  idempotency right before each send. The kill switch cancels queued messages immediately.
+- Sidecar `send_text`: plain text only, no groups, no duplicates, brief "typing…" first.
+- Fix: edited replies keep their trailing punctuation and words.
+- Tests: 466 Python, 9 Node.
+
+## 0.3.1: AI providers (2026-11-09)
+- Use Anthropic, Gemini, Groq, NVIDIA, OpenAI, OpenRouter or local Ollama (and any other
+  OpenAI-compatible API) for triage, drafting and the red-flag check.
+- Per-job fallback chains in `config/flins.yaml`: providers without a key are skipped, failures
+  fall through to the next. Refusals are never routed elsewhere.
+- `flins llm status | test | models <provider>`; `flins eval --live --provider <name>`.
+- Provider recorded on every metered AI call; optional prices per route for the daily budget.
+- Fix: console output is UTF-8 (emoji in messages no longer crash a redirected Windows console).
+- Tests: 449 Python, 9 Node.
+
 ## 0.3.0: M3 AI triage, drafts, output guard, dashboard, eval (2026-11-09)
 - LLM gateway: structured JSON output, timeouts, retries, validation, refusal handling, cost
   metering per call, daily budget. Versioned prompts in `prompts/`.

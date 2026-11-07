@@ -3,8 +3,38 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** Milestone M3. FLINS reads WhatsApp, follows modes, uses Claude to understand
-messages and draft replies, and shows what it *would* send. It **cannot send anything** yet.
+**Status:** Milestone M5. In a busy mode FLINS sends your **holding reply by itself** to close
+contacts, drafts real answers for everything else (sent when you approve), and talks to you in
+your WhatsApp **"Message yourself"** chat.
+
+## Sending
+Sending stays off until you turn it on yourself in `config/policy.yaml`:
+```yaml
+dry_run: false
+```
+Then restart `flins run`. Approve a draft on the dashboard (**Approve & send**, **Edit & send**,
+**Reject**) or from your WhatsApp "Message yourself" chat:
+
+| Type | Does |
+|---|---|
+| `y3` | send draft #3 |
+| `e3 Not now, call you at 8!` | send your own words instead |
+| `n3` | drop draft #3 |
+| `pending` | list what's waiting |
+
+Drafts expire after 30 minutes. `stop` cancels anything queued instantly.
+
+**Automatic holding replies** (`auto_replies: holding_only` in `policy.yaml`, or `off`): in
+working / focus / away mode, contacts your policy allows (by default **inner** for anything
+small-talk-like and **trusted** for "where are you?" / "reached?" and urgent acknowledgements) get
+your template, e.g.
+*"Hey Mom! Hemanth is busy with work right now and will get back to you after 18:00."* It's sent
+once per chat per session, 20–90 s after their message, and never if you've already replied
+yourself. `I'm done` or `stop` cancels anything still waiting.
+
+**In your self-chat** FLINS answers your commands, asks before sending drafts
+(`#3 Kavya: "…" Draft: "…" Reply y3 to send…`), warns you about urgent messages, and sends a
+summary when you say `I'm done`. Its notes start with 🤖.
 
 ## Requirements
 - Windows 11, Python ≥ 3.12, [uv](https://docs.astral.sh/uv/), Node.js ≥ 20, Git
@@ -66,12 +96,45 @@ running. FLINS's answer appears in the terminal for now; from M4 it replies in t
 Modes always end: at most 12 hours, and a mode that ended while FLINS was off is NORMAL on
 restart.
 
-## AI (optional but needed for drafts)
-Put an Anthropic API key in `.env` (`ANTHROPIC_API_KEY=...`, from console.anthropic.com; billed
-separately from Claude Pro). Without it FLINS still follows the rules, but can't understand
-ordinary messages or draft replies. Spending stops at `limits.daily_llm_budget_usd` in your
-policy (default $2/day). Normal mode, paused, unknown senders, money and OTP messages never go
-to the AI at all.
+## AI providers (optional, but needed for drafts)
+FLINS can use **Anthropic (Claude), Google Gemini, Groq, NVIDIA, OpenAI, OpenRouter, or a local
+Ollama**. Put the keys you have in `.env`:
+```
+ANTHROPIC_API_KEY=...   # console.anthropic.com (not the same as a Claude Pro subscription)
+GEMINI_API_KEY=...      # aistudio.google.com
+GROQ_API_KEY=...        # console.groq.com
+NVIDIA_API_KEY=...      # build.nvidia.com
+```
+`config/flins.example.yaml` (copy to `flins.yaml` to edit) lists, for each job, which
+provider/model to try first, second, and so on. Providers without a key are skipped; if one fails,
+FLINS tries the next. Anthropic is first by default; with only a Groq key, Groq does everything.
+
+```powershell
+uv run flins llm status          # which provider each job will use
+uv run flins llm test            # one tiny request per configured model (fractions of a cent)
+uv run flins llm models groq     # model names your key can use (also: gemini, nvidia, anthropic, ...)
+uv run flins eval --live --provider groq   # safety eval against one provider's real models
+```
+Without any key FLINS still follows the rules, but can't understand ordinary messages or draft
+replies. Spending stops at `limits.daily_llm_budget_usd` in your policy (default $2/day). Normal
+mode, paused, unknown senders, money and OTP messages never go to any AI provider.
+
+## What FLINS may say about you
+FLINS answers what people actually ask, but it only states facts about you that you listed in
+`config/about_me.yaml`, each with who may hear it:
+```yaml
+facts:
+  - fact: "Hemanth is an engineering student."
+    share_with: known      # everyone | known | trusted | inner
+  - fact: "He's usually free after 7pm on weekdays."
+    share_with: trusted
+answers:
+  - question: "Did you get my file?"
+    answer: "He checks email in the evening and will reply then."
+    share_with: known
+```
+Out of the box the file is empty, so FLINS answers general questions and small talk but says
+nothing about your life. Restart `flins run` after editing it.
 
 ## Dashboard
 `flins run` serves it at http://127.0.0.1:8765 (or run `uv run flins dashboard` on its own).
@@ -81,7 +144,7 @@ contact tiers (set your family to `inner` and close friends to `trusted` here), 
 ## Safety eval
 ```powershell
 uv run flins eval            # 162 recorded cases, including fooled/leaky AI answers: must be 0 unsafe
-uv run flins eval --live     # the 42 normal situations against the real models (about $0.25)
+uv run flins eval --live     # the 42 normal situations against your configured AI models
 ```
 
 Replay a scripted scenario through the real code (frozen clock, no WhatsApp):
@@ -98,5 +161,4 @@ npm --prefix wa-sidecar test
 ```
 
 ## Milestones
-See SPEC §14. Done: **M0**–**M3**. Next: **M4** (approvals from dashboard/self-chat, the outbox,
-and the first real sends, only after you turn off `dry_run` yourself).
+See SPEC §14. Done: **M0**–**M5**. Next: **M6** (voice: push-to-talk, speech-to-text, spoken replies).

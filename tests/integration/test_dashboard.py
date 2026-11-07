@@ -50,7 +50,8 @@ def test_inbox_shows_decisions_drafts_and_traces(client: TestClient) -> None:
     assert "Rahul" in html and "Mom" in html
     assert "would reply" in html and "would send holding reply" in html
     assert "URGENT" in html
-    assert "shadow mode" in html
+    assert "dry run: nothing is sent" in html
+    assert "Approve &amp; send" in html  # held drafts can be approved
     assert "Content-Security-Policy" in r.headers
 
 

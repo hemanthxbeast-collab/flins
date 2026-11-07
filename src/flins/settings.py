@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -31,10 +34,37 @@ class LoggingConfig(_Strict):
     level: str = "INFO"
 
 
+class ProviderConfig(_Strict):
+    """Override a built-in provider, or add one that speaks the OpenAI chat API."""
+
+    base_url: str | None = None
+    key_env: str | None = None  # name of the environment variable that holds the key
+    json_mode: Literal["json_schema", "json_object", "prompt"] | None = None
+    reasoning_effort: bool | None = None
+    min_max_tokens: int | None = Field(default=None, ge=256, le=65536)
+    timeout_s: float | None = Field(default=None, gt=0, le=300)
+
+
+class RouteConfig(_Strict):
+    provider: str
+    model: str
+    price_in: float | None = Field(default=None, ge=0)  # USD per million input tokens
+    price_out: float | None = Field(default=None, ge=0)  # USD per million output tokens
+
+
+class LLMConfig(_Strict):
+    providers: dict[str, ProviderConfig] = Field(default_factory=dict)
+    # Per job, providers in order of preference. Missing jobs use the Anthropic defaults.
+    roles: dict[Literal["triage", "draft", "redflag"], list[RouteConfig]] = Field(
+        default_factory=dict
+    )
+
+
 class AppConfig(_Strict):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
 
 
 class ToneProfile(_Strict):
@@ -65,6 +95,41 @@ class ToneConfig(BaseModel):
         return self.profiles.get("casual", ToneProfile())
 
 
+ShareWith = Literal["everyone", "known", "trusted", "inner"]
+_SHARE_RANK = {"everyone": 0, "known": 1, "trusted": 2, "inner": 3}
+_TIER_RANK = {"unknown": 0, "known": 1, "trusted": 2, "inner": 3}  # blocked: never
+
+
+class AboutFact(_Strict):
+    fact: str = Field(min_length=1, max_length=300)
+    share_with: ShareWith = "trusted"
+
+
+class AboutAnswer(_Strict):
+    question: str = Field(min_length=1, max_length=200)
+    answer: str = Field(min_length=1, max_length=300)
+    share_with: ShareWith = "trusted"
+
+
+class AboutMe(_Strict):
+    """about_me.yaml: the only things FLINS may say about the user, and to whom."""
+
+    facts: list[AboutFact] = Field(default_factory=list)
+    answers: list[AboutAnswer] = Field(default_factory=list)
+
+    def for_tier(self, tier: str) -> list[str]:
+        rank = _TIER_RANK.get(tier, -1)
+        if rank < 0:
+            return []
+        out = [f.fact for f in self.facts if _SHARE_RANK[f.share_with] <= rank]
+        out += [
+            f"If asked {a.question!r}: {a.answer}"
+            for a in self.answers
+            if _SHARE_RANK[a.share_with] <= rank
+        ]
+        return out
+
+
 class Secrets(BaseSettings):
     """Read from environment variables and the project's .env. Values are never logged."""
 
@@ -81,7 +146,16 @@ class Settings:
     policy: Policy
     secrets: Secrets
     tones: ToneConfig = field(default_factory=ToneConfig)
+    about: AboutMe = field(default_factory=AboutMe)
     notes: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)  # .env values, then real env vars
+
+    def env_value(self, name: str | None) -> str | None:
+        """A secret by variable name (e.g. GROQ_API_KEY). Never log the result."""
+        if not name:
+            return None
+        value = os.environ.get(name) or self.env.get(name)
+        return value or None
 
     @property
     def prompts_dir(self) -> Path:
@@ -134,6 +208,40 @@ def load_settings(root: Path | None = None) -> Settings:
     for tier_name, tier in policy.tiers.items():
         if tier.tone and tier.tone not in tones.profiles:
             notes.append(f"tier {tier_name} uses unknown tone profile {tier.tone!r}")
+    about = AboutMe()
+    try:
+        with _pick(config_dir, "about_me", notes).open(encoding="utf-8") as f:
+            about = AboutMe.model_validate(yaml.safe_load(f) or {})
+    except FileNotFoundError:
+        pass
     env_file = root / ".env"
     secrets = Secrets(_env_file=env_file if env_file.is_file() else None)  # type: ignore[call-arg]
-    return Settings(root=root, app=app, policy=policy, secrets=secrets, tones=tones, notes=notes)
+    env = read_env_file(env_file) if env_file.is_file() else {}
+    return Settings(
+        root=root,
+        app=app,
+        policy=policy,
+        secrets=secrets,
+        tones=tones,
+        about=about,
+        notes=notes,
+        env=env,
+    )
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    """Minimal .env reader: KEY=VALUE lines, # comments (also after a value), optional quotes."""
+    out: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        else:
+            value = re.split(r"\s+#|^#", value, maxsplit=1)[0].strip()
+        if value:
+            out[key.strip()] = value
+    return out

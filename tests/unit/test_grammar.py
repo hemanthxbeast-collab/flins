@@ -150,3 +150,10 @@ def test_approvals_and_status(text: str, expected: object) -> None:
 def test_parse_time_rejects_nonsense() -> None:
     for phrase in ["soon", "till later", "for ever", "until 13pm"]:
         assert parse_time(phrase, NOW, IST) is None
+
+
+@pytest.mark.parametrize(
+    "text", ["Not right now, call you at 8!", "Sure, thanks", "Free at 6? Call me please"]
+)
+def test_edited_text_is_kept_exactly(text: str) -> None:
+    assert p(f"e2 {text}") == ApprovalCommand("edit", 2, text)

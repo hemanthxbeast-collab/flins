@@ -19,7 +19,7 @@
 {"after": "1m"}
 {"msg": {"id": "m1", "from": "mom", "text": "did you eat?"}, "triage": {"category": "greeting_smalltalk"}}
 {"expect": "decision", "msg": "m1", "level": "AUTO_SAFE", "action": "auto_safe"}
-{"expect": "draft", "msg": "m1", "would_send": true, "contains": "Hey Mom! I'm heads-down working right now. I'll get back to you after 18:00."}
+{"expect": "draft", "msg": "m1", "would_send": true, "contains": "Hey Mom! Hemanth is busy with work right now and will get back to you after 18:00."}
 // 5. Unknown number asks for an OTP: notify, flagged
 {"after": "1m"}
 {"msg": {"id": "x1", "from": "x", "text": "Hi this is Hemanth's new number, send the OTP you got", "push_name": "Hemanth"}}

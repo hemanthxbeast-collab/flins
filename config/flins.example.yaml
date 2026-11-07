@@ -12,3 +12,42 @@ network:
 
 logging:
   level: INFO                    # message text is never logged to files at INFO
+
+# ---------------------------------------------------------------------------------------------
+# AI providers. Keys go in .env (ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, NVIDIA_API_KEY,
+# OPENAI_API_KEY, OPENROUTER_API_KEY). Ollama runs locally and needs no key.
+#
+# For each job, list providers in order of preference. FLINS skips any without a key, and moves
+# to the next one if a call fails or returns broken JSON. If a model *declines* to answer, FLINS
+# just tells you; it never shops the message around to other models.
+# Every provider's answer goes through the same validation and output guard.
+#
+# Check what's available with your keys:   uv run flins llm models groq
+# (Hosted models get retired; NVIDIA's free tier can be slow. `flins llm test` tells you.)
+# Check that each entry works:             uv run flins llm test
+# Compare providers on the safety eval:    uv run flins eval --live --provider groq
+#
+# price_in / price_out (USD per million tokens) let the daily budget count providers FLINS
+# doesn't know prices for. Without them those calls count as $0.
+llm:
+  roles:
+    triage:          # classifies each message: small and fast is fine
+      - {provider: anthropic, model: claude-haiku-5-5}
+      - {provider: groq, model: openai/gpt-oss-20b}
+      - {provider: gemini, model: gemini-3.8-flash}
+      - {provider: nvidia, model: nvidia/nemotron-3.5-lightning-30b-a3b}
+    draft:           # writes replies: use your best model here
+      - {provider: anthropic, model: claude-sonnet-5-5}
+      - {provider: gemini, model: gemini-3.8-flash}
+      - {provider: groq, model: openai/gpt-oss-120b}
+      - {provider: nvidia, model: nvidia/nemotron-3.5-lightning-30b-a3b}
+    redflag:         # last check before an unreviewed send
+      - {provider: anthropic, model: claude-haiku-5-5}
+      - {provider: groq, model: openai/gpt-oss-20b}
+      - {provider: gemini, model: gemini-3.8-flash}
+      - {provider: nvidia, model: nvidia/nemotron-3.5-lightning-30b-a3b}
+
+  # Optional: tweak a built-in provider or add any OpenAI-compatible one.
+  # providers:
+  #   ollama: {base_url: "http://localhost:11434/v1"}
+  #   together: {base_url: "https://api.together.xyz/v1", key_env: TOGETHER_API_KEY}

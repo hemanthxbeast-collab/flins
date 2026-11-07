@@ -124,7 +124,42 @@ async def test_wrong_secret_is_fatal() -> None:
         await stop()
 
 
-async def test_send_text_refuses_until_m4() -> None:
+async def test_send_text_when_not_connected() -> None:
     adapter = BaileysAdapter(1, SECRET)
-    with pytest.raises(NotImplementedError, match="M4"):
-        await adapter.send_text("x", "y", quote=None, client_msg_id="c")
+    result = await adapter.send_text("x@s.whatsapp.net", "hi", quote=None, client_msg_id="c1")
+    assert not result.ok and "not connected" in (result.error or "")
+
+
+async def test_send_text_round_trip() -> None:
+    received: list[dict[str, object]] = []
+
+    async def sidecar(ws: ServerConnection) -> None:
+        v = FrameVerifier(SECRET)
+        v.verify(await ws.recv())
+        await ws.send(sign_frame(SECRET, "hello.ok", {"sidecar_version": "0.1.0", "state": "open"}))
+        body = v.verify(await ws.recv())
+        received.append({"kind": body.kind, **body.payload})
+        await ws.send(
+            sign_frame(
+                SECRET,
+                "send.result",
+                {"client_msg_id": body.payload["client_msg_id"], "ok": True, "wa_msg_id": "WA1"},
+            )
+        )
+        await ws.wait_closed()
+
+    port, stop = await start_server(sidecar)
+    adapter = BaileysAdapter(port, SECRET)
+    events = adapter.events()
+    try:
+        await take(events, 1)  # hello.ok -> state open
+        consumer = asyncio.create_task(take(events, 1))  # keeps reading frames
+        result = await adapter.send_text("9@s.whatsapp.net", "hey", quote=None, client_msg_id="c9")
+        consumer.cancel()
+    finally:
+        await adapter.close()
+        await stop()
+    assert result.ok and result.wa_msg_id == "WA1"
+    assert received == [
+        {"kind": "send_text", "chat_jid": "9@s.whatsapp.net", "text": "hey", "client_msg_id": "c9"}
+    ]

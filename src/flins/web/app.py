@@ -20,8 +20,9 @@ from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
-from flins.core.clock import Clock, SystemClock
+from flins.core.clock import Clock, SystemClock, to_iso
 from flins.core.commands import CommandRouter
 from flins.core.db import connect
 from flins.core.events import EventBus
@@ -105,11 +106,18 @@ def create_app(
                        (SELECT group_concat(COALESCE(x.text, '[' || x.type || ']'), ' / ')
                           FROM messages x WHERE x.burst_id = d.burst_id) AS texts,
                        COALESCE(c.display_name, '~' || c.push_name, m.chat_jid) AS who,
-                       dr.text AS draft, dr.would_send, dr.guard_results
+                       dr.text AS draft, dr.would_send, dr.guard_results,
+                       a.id AS approval_id, a.short_id, a.status AS approval_status,
+                       a.expires_at, o.status AS send_status, o.error AS send_error,
+                       o.kind AS send_kind
                 FROM decisions d
                 JOIN messages m ON m.id = d.message_id
                 LEFT JOIN contacts c ON c.wa_jid = m.chat_jid OR c.wa_lid = m.chat_jid
                 LEFT JOIN drafts dr ON dr.decision_id = d.id
+                LEFT JOIN approvals a ON a.draft_id = dr.id
+                LEFT JOIN outbox o ON o.id = (
+                    SELECT MAX(x.id) FROM outbox x WHERE x.decision_id = d.id
+                )
                 ORDER BY d.id DESC LIMIT 100
                 """
             ) as cur:
@@ -123,6 +131,11 @@ def create_app(
             guard = json.loads(r["guard_results"]) if r["guard_results"] else None
             r["guard_failures"] = guard["failures"] if guard else []
             r["is_group"] = r["chat_jid"].endswith("@g.us")
+            r["can_approve"] = (
+                r["approval_status"] == "pending"
+                and r["expires_at"] is not None
+                and r["expires_at"] > to_iso(clk.now())
+            )
         return page(
             request,
             "inbox.html",
@@ -241,6 +254,22 @@ def create_app(
                 )
         target = back if back.startswith("/contacts") else "/contacts"
         return RedirectResponse(target, status_code=303)
+
+    @app.post("/approvals/{approval_id}")
+    async def approval(
+        approval_id: int,
+        action: str = Form(...),
+        token: str = Form(...),
+        text: str = Form(""),
+    ) -> RedirectResponse:
+        check_token(token)
+        if action not in ("approve", "edit", "reject"):
+            raise HTTPException(status_code=400, detail="unknown action")
+        async with db() as conn:
+            msg = await ApprovalService(conn, policy).decide(
+                action, now=clk.now(), channel="dashboard", approval_id=approval_id, text=text
+            )
+        return RedirectResponse(f"/?msg={quote(msg)}", status_code=303)
 
     @app.post("/mode")
     async def mode(text: str = Form(...), token: str = Form(...)) -> RedirectResponse:

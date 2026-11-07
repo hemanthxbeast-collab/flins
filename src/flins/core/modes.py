@@ -472,6 +472,17 @@ class ModeManager:
             row = await cur.fetchone()
         return int(row[0]) if row else 0
 
+    async def session_started_at(self) -> datetime:
+        """When this busy session began: the last switch out of NORMAL (survives stop/resume)."""
+        timed = tuple(m.value for m in TIMED_MODES)
+        async with self._conn.execute(
+            "SELECT ts FROM mode_history WHERE from_mode = 'NORMAL' "
+            f"AND to_mode IN ({','.join('?' * len(timed))}) ORDER BY id DESC LIMIT 1",
+            timed,
+        ) as cur:
+            row = await cur.fetchone()
+        return from_iso(row[0]) if row else self.state.started_at
+
     async def _debrief(self, since: ModeState) -> readback.Debrief:
         """Summarise decisions since the session began: the last time FLINS left NORMAL.
 
@@ -487,14 +498,61 @@ class ModeManager:
             row = await cur.fetchone()
         start = row[0] if row else to_iso(since.started_at)
         async with self._conn.execute(
-            "SELECT action, escalate, flags FROM decisions WHERE created_at >= ?",
+            """
+            SELECT d.action, d.escalate, d.flags,
+                   COALESCE(c.display_name, '~' || c.push_name, 'Someone') AS who,
+                   (SELECT group_concat(COALESCE(x.text, '[' || x.type || ']'), ' / ')
+                      FROM messages x WHERE x.burst_id = d.burst_id) AS said,
+                   (SELECT o.status || ':' || o.kind FROM outbox o
+                      WHERE o.decision_id = d.id ORDER BY o.id DESC LIMIT 1) AS sent,
+                   (SELECT a.status || ':' || a.short_id FROM approvals a
+                      WHERE a.decision_id = d.id) AS approval
+            FROM decisions d
+            JOIN messages m ON m.id = d.message_id
+            LEFT JOIN contacts c ON c.wa_jid = m.chat_jid OR c.wa_lid = m.chat_jid
+            WHERE d.created_at >= ?
+            ORDER BY d.escalate DESC, d.id
+            """,
             (start,),
         ) as cur:
             rows = await cur.fetchall()
         actions: dict[str, int] = {}
         escalations = scams = 0
+        items: list[str] = []
         for r in rows:
             actions[r["action"]] = actions.get(r["action"], 0) + 1
             escalations += int(r["escalate"])
-            scams += int("credentials" in json.loads(r["flags"] or "[]"))
-        return readback.Debrief(actions=actions, escalations=escalations, suspicious=scams)
+            flags = json.loads(r["flags"] or "[]")
+            scams += int("credentials" in flags)
+            items.append(_debrief_line(r, flags))
+        return readback.Debrief(
+            actions=actions, escalations=escalations, suspicious=scams, items=tuple(items)
+        )
+
+
+def _debrief_line(r: aiosqlite.Row, flags: list[str]) -> str:
+    """'⚠ Rahul: "URGENT call me now" → sent the urgent acknowledgement'"""
+    said = " ".join((r["said"] or "").split())
+    said = said if len(said) <= 50 else said[:49] + "…"
+    sent_status, _, kind = (r["sent"] or "").partition(":")
+    approval, _, short_id = (r["approval"] or "").partition(":")
+    if sent_status == "sent":
+        what = "sent a holding reply" if kind == "auto" else "sent your approved reply"
+    elif sent_status == "dry_run":
+        what = "would have replied (dry run)"
+    elif sent_status in ("queued",):
+        what = "reply on its way"
+    elif sent_status in ("cancelled", "failed"):
+        what = f"reply {sent_status}"
+    elif approval == "pending":
+        what = f"draft #{short_id} waiting for you"
+    elif approval in ("rejected", "expired"):
+        what = f"draft {approval}"
+    elif r["action"] == "ignore":
+        what = "ignored"
+    else:
+        what = "told you"
+    if "credentials" in flags:
+        what += " (looked like a scam)"
+    mark = "⚠ " if r["escalate"] else ""
+    return f'{mark}{r["who"]}: "{said}" → {what}'

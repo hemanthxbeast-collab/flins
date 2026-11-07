@@ -17,6 +17,8 @@ export interface ServerOptions {
 	host?: string
 	helloInfo: () => Record<string, unknown>
 	onShutdown?: () => void
+	/** Any other verified command from core (e.g. send_text). */
+	onCommand?: (kind: string, payload: Record<string, unknown>) => void
 	log?: (msg: string) => void
 }
 
@@ -118,6 +120,8 @@ export class CoreServer {
 				ws.send(signFrame(this.opts.secret, 'pong', { echo: body.id }))
 			} else if (body.kind === 'shutdown') {
 				this.opts.onShutdown?.()
+			} else if (this.opts.onCommand) {
+				this.opts.onCommand(body.kind, body.payload)
 			} else {
 				this.log(`ignored unknown command kind=${body.kind}`)
 			}

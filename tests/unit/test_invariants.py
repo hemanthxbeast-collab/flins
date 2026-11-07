@@ -23,12 +23,23 @@ def test_nothing_outside_adapters_calls_send_text() -> None:
     assert offenders == []
 
 
-def test_sidecar_has_no_send_command_yet() -> None:
-    # M1 is read-only: the sidecar must not call Baileys' sendMessage anywhere.
+def test_sidecar_sends_only_plain_text_from_one_place() -> None:
+    """M4: exactly one sendMessage call, in the send_text handler, text only (no media)."""
+    hits = []
     for path in SIDECAR_SRC.rglob("*.ts"):
         if "test" in path.parts:
             continue
-        assert "sendMessage" not in path.read_text(encoding="utf-8"), path.name
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "sendMessage(" in line:
+                hits.append((path.name, line.strip()))
+    assert len(hits) == 1, hits
+    name, line = hits[0]
+    assert name == "index.ts" and "{ text }" in line
+
+
+def test_sidecar_refuses_groups_and_duplicates() -> None:
+    index = (SIDECAR_SRC / "index.ts").read_text(encoding="utf-8")
+    assert "isJidGroup(jid)" in index and "duplicate client_msg_id" in index
 
 
 def test_sidecar_keeps_phone_notifications_and_no_read_receipts() -> None:

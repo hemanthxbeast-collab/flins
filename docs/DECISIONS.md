@@ -2,6 +2,97 @@
 
 Short records of choices made while building. Newest first.
 
+## M5: automatic holding replies, self-chat, summary (2026-11-09)
+- **Only holding replies go out by themselves** (AUTO_SAFE: your third-person templates). Replies
+  the AI writes still need your approval; per-contact unlock is M9. `auto_replies: off` turns
+  automatic sending off without touching anything else.
+- **Extra checks for automatic replies, right before sending:** the busy mode is still on and
+  hasn't ended, **you haven't replied to that person yourself** since, at most one holding reply
+  per chat per session (a session runs from leaving NORMAL, across stop/resume), the per-contact
+  hourly cap, plus everything approved sends already check. Random 20–90 s delay first.
+- **Leaving the mode cancels queued holding replies**; `stop` cancels everything except notes to you.
+- **Self-chat notes** (command answers, approval prompts, urgent alerts, expiry warning, summary)
+  start with "🤖". FLINS ignores self-chat messages with that prefix or that the outbox sent, so
+  a note like "🤖 Back to normal" can never be read as a command. Notes skip the contact checks
+  (it's you) and are delivered even while paused. Dry run still blocks them. `self_chat_notes:
+  false` turns them off.
+- **Summary** lists one line per message, urgent first: who, what they said (50 chars), and
+  what happened (sent a holding reply / sent your approved reply / draft #n waiting / told you /
+  ignored, plus "looked like a scam"). At most 10 lines in WhatsApp; the dashboard has the rest.
+- **Debounce left at 25 s quiet / 90 s max.** No real-use data yet to tune it; it's a policy
+  setting (`limits.debounce_*`).
+
+## Replies that answer the message (2026-11-09)
+- **Draft prompt v2** answers what the person said (questions, wishes, small talk, plans) and
+  mentions availability only when it matters. v1 stays on disk; prompts now load by job name and
+  the newest version wins (`draft` -> `draft_v2.md`).
+- **`config/about_me.yaml`** is the only source of facts about the user, each with `share_with`
+  (everyone / known / trusted / inner). The example shares nothing: every fact is opt-in.
+  General knowledge ("what's the full form of CPU?") is allowed; anything about the user's life
+  that isn't in the file is not.
+- **Found with real Groq drafts:** the model wrote as if it were the user ("I'm travelling",
+  "main kaam kar raha hoon"), accepted birthday wishes as the user, and once said "he's free now"
+  during working mode. Fixes: prompt rules for speaking as FLINS in the third person, plus two
+  deterministic guard checks:
+  - **writing as the user** (English and Hindi first-person markers): held back as a draft for
+    approval. "I'll pass it on" / "I'm FLINS" are fine. Templates are exempt because they're the
+    user's own words.
+  - **claiming the user is free while a busy mode is on**: straight to NOTIFY.
+- Recorded eval answers now match a job by name, so tests and evals don't depend on a prompt
+  version.
+- **Note:** contacts in the `inner` tier still get only the fixed holding reply for small talk
+  while in working mode (policy: inner = AUTO_SAFE). Set someone to `trusted` for real answers.
+
+## M4: approvals and sending (2026-11-09)
+- **Only drafts you approve are sent.** Automatic replies (AUTO / AUTO_SAFE) still only show as
+  "would send" until M5, as SPEC §14 plans. Each draft gets a daily number (#1, #2, ...).
+- **Ways to approve:** dashboard buttons (Approve / Edit / Reject), or the self-chat: `y3`,
+  `n3`, `e3 <your text>`, `pending`, or plain `send it` when exactly one draft is waiting.
+- **The outbox is the only sender** (invariant 2, tested by a code scan). Right before each send
+  it re-checks from the database: not paused, dry run off, the contact wrote within 24 h, the
+  hourly/daily caps, one send per approval. A row is marked before the send call, so a crash
+  mid-send never causes a second attempt.
+- **Kill switch:** pausing cancels every queued message at once (the in-process event, measured
+  < 1 s in tests), and the worker re-reads the mode before each send, so `flins stop` from another
+  terminal also works.
+- **Approved texts get the disclosure signature** ("— FLINS, Hemanth's assistant") unless the
+  contact has disclosure off. Text you edit is sent exactly as typed, without a signature.
+  Your edits are saved as tone examples for later.
+- **Approvals expire after 30 min** (`approvals.expiry_minutes`). A stale "I'm busy till 18:00"
+  is worse than none. Drafts made before M4 have no approval and can't be sent.
+- **The sidecar has one send path:** plain text only (no media, no link previews), never to
+  groups, broadcasts or channels, refuses duplicate ids, shows "typing…" for up to 4 s first.
+- **Fix found by the tests:** command parsing dropped trailing "!", "?", "please" and "thanks",
+  which would have changed edited texts. Edited text is now kept exactly as typed.
+- **Deferred to M5:** FLINS's answers to self-chat commands are still printed in the terminal
+  rather than sent back into the self-chat.
+
+## Multiple AI providers (2026-11-09)
+- **Supported:** Anthropic (native SDK) plus any OpenAI-compatible chat API through one adapter:
+  Gemini, Groq, NVIDIA, OpenAI, OpenRouter, and local Ollama built in; others can be added in
+  `flins.yaml` with `base_url` + `key_env`. Endpoints were checked against each provider's docs
+  on 2026-11-09 (Groq `api.groq.com/openai/v1`, Gemini
+  `generativelanguage.googleapis.com/v1beta/openai`, NVIDIA `integrate.api.nvidia.com/v1`).
+- **Raw HTTP (`httpx`), not the `openai` package.** One small adapter covers every provider and
+  avoids another SDK. `httpx` moved from a test-only dependency to a runtime one.
+- **Per-job fallback chains** (`llm.roles.triage|draft|redflag` in flins.yaml): providers without
+  a key are skipped; errors, timeouts, cut-off answers and invalid JSON fall through to the next.
+  Each attempt is metered with its provider.
+- **Refusals are never routed to another provider** (same rule as M3).
+- **JSON handling per provider:** `json_schema` where supported (Gemini, Groq, OpenAI,
+  OpenRouter), `json_object` for Ollama, and schema-in-prompt for NVIDIA, whose API reference
+  doesn't document `response_format`. Fenced or chatty JSON is unwrapped. Every answer is still
+  validated by the same strict Pydantic models, and drafts still go through the output guard
+  and red flag, whatever the provider.
+- **Thinking models get room:** Gemini and Groq calls use at least 4096 output tokens, so
+  reasoning doesn't cut the JSON off. `reasoning_effort` is sent where supported.
+- **Budget:** prices are known for Claude and Groq's gpt-oss models. Others count as $0 unless
+  `price_in` / `price_out` are set on the route, and `flins llm status` shows this.
+- **Privacy:** every provider you add receives the same minimal, name-only context as Claude did.
+  Messages that rules already cap at NOTIFY still go to no provider at all.
+- **Console output is UTF-8.** Found while testing: a Windows console with output redirected
+  crashed on "≈", and WhatsApp emoji would have done the same.
+
 ## M3 (2026-11-09)
 - **Dependencies added** (all on the CLAUDE.md stack list, or required by it): `anthropic`
   (SDK 2.6), `fastapi`, `uvicorn`, `jinja2`, `python-multipart` (FastAPI's form parser);

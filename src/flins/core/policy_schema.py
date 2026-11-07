@@ -174,6 +174,10 @@ class Retention(_Strict):
 class Policy(_Strict):
     version: Literal[1]
     dry_run: bool = True
+    # M5: send your holding-reply templates automatically in busy modes ("off" = never).
+    auto_replies: Literal["holding_only", "off"] = "holding_only"
+    # M5: FLINS writes command answers, approval prompts and urgent alerts to your self-chat.
+    self_chat_notes: bool = True
     user: UserInfo
     modes: dict[Mode, ModePolicy]
     profiles: dict[str, ProfilePolicy] = Field(default_factory=dict)

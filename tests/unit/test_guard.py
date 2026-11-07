@@ -94,8 +94,63 @@ def test_never_mention_length_language_empty() -> None:
 
 
 def test_templates_skip_llm_self_reports_but_not_leak_checks() -> None:
-    tpl = "Hey Mom! I'm heads-down working right now. I'll get back to you after 18:00."
+    tpl = "Hey Mom! Hemanth is busy with work right now and will get back to you after 18:00."
     assert check(g(tpl, level=Level.AUTO_SAFE, is_template=True, confidence=0.0)).ok
     assert check(g(tpl + " +91 98765 43210", level=Level.AUTO_SAFE, is_template=True)).cap == (
         Level.NOTIFY
     )
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "I'm traveling to Hyderabad this weekend.",
+        "I’ll be there at 5",
+        "I was busy, sorry!",
+        "Abhi main kaam kar raha hoon",
+        "Mujhe nahi pata",
+    ],
+)
+def test_writing_as_the_user_is_held_back(reply: str) -> None:
+    r = check(g(reply))
+    assert r.cap == Level.DRAFT and any("as if it were the user" in f for f in r.failures)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "He's travelling to Hyderabad this weekend.",
+        "I'll pass it on to him!",
+        "I'm FLINS, his assistant. He's working till 18:00.",
+        "Aww, I'll tell him! He'll reply after 18:00.",
+        "Woh abhi kaam kar raha hai, 18:00 ke baad reply karega.",
+    ],
+)
+def test_speaking_as_flins_is_fine(reply: str) -> None:
+    assert check(g(reply)).ok, check(g(reply)).failures
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "He just wrapped up work, so he's free now.",
+        "He's free, call him!",
+        "Woh abhi free hai",
+        "Haan, free ho gaya",
+        "He is available right now",
+    ],
+)
+def test_claiming_free_while_busy_goes_to_notify(reply: str) -> None:
+    r = check(g(reply, busy=True))
+    assert r.cap == Level.NOTIFY and any("free" in f for f in r.failures)
+
+
+def test_free_after_the_busy_time_is_fine() -> None:
+    assert check(g("He'll be free after 18:00, he'll call you then.", busy=True)).ok
+    assert check(g("He's free now!", busy=False)).ok  # normal mode: no busy claim to contradict
+
+
+def test_first_person_template_is_caught_too() -> None:
+    """FLINS != Hemanth, even in a template you wrote."""
+    tpl = "Hey Mom! I'm heads-down working right now."
+    assert check(g(tpl, level=Level.AUTO_SAFE, is_template=True)).cap == Level.NOTIFY

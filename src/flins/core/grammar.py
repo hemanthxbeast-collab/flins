@@ -178,7 +178,9 @@ def parse(text: str, *, now: datetime, tz: ZoneInfo) -> Command | ParseError | N
     if not t:
         return None
 
-    m = _EDIT.fullmatch(_normalise(text))  # keep the user's casing in edited text
+    # Edited text is sent exactly as typed: only drop a leading "FLINS,", never trailing
+    # punctuation or "please"/"thanks" (those are part of the message).
+    m = _EDIT.fullmatch(_PREFIX.sub("", text.strip()))
     if m:
         return ApprovalCommand("edit", int(m.group("n")), m.group("text").strip())
     for op, rx in (("approve", _APPROVE), ("reject", _REJECT)):

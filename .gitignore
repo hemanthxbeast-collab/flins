@@ -5,6 +5,7 @@ config/flins.yaml
 config/policy.yaml
 config/contacts.yaml
 config/tone_profiles.yaml
+config/about_me.yaml
 
 # Python
 __pycache__/

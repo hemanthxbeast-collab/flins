@@ -2,7 +2,7 @@
 {% block head %}<meta http-equiv="refresh" content="15">{% endblock %}
 {% block body %}
 <div class="card row">
-  <span>{% if dry_run %}<span class="chip">shadow mode: nothing is sent</span>{% endif %}
+  <span>{% if dry_run %}<span class="chip">dry run: nothing is sent</span>{% else %}<span class="chip urgent">sending is ON for approved drafts</span>{% endif %}
   <span class="chip">AI today: {{ llm_calls }} calls, ${{ "%.3f"|format(cost) }}</span></span>
   <span style="flex:1"></span>
   {% for label, cmd, cls in [("Stop", "stop", "danger"), ("Resume", "resume", ""), ("I'm done", "I'm done", "")] %}
@@ -41,9 +41,32 @@
   {% if r.draft %}
     <div class="draft {% if r.would_send %}send{% endif %}">{{ r.draft }}</div>
     <div class="muted" style="font-size:13px">
-      {% if r.would_send %}would send{% else %}held back{% endif %}
+      {% if r.short_id %}#{{ r.short_id }} · {% endif %}
+      {% if r.send_status == "sent" %}<b class="lvl-auto">{% if r.send_kind == "auto" %}sent automatically{% else %}sent{% endif %}</b>
+      {% elif r.send_status == "queued" %}<b>sending…</b>
+      {% elif r.send_status == "dry_run" %}approved, not sent (dry run is on)
+      {% elif r.send_status %}<span class="urgent">{{ r.send_status }}</span>{% if r.send_error %}: {{ r.send_error }}{% endif %}
+      {% elif r.approval_status and r.approval_status != "pending" %}{{ r.approval_status }}
+      {% else %}held back{% endif %}
       {% if r.guard_failures %} · guard: {{ r.guard_failures|join("; ") }}{% endif %}
     </div>
+    {% if r.can_approve %}
+    <div class="row" style="margin-top:6px">
+      <form class="inline" method="post" action="/approvals/{{ r.approval_id }}">
+        <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="action" value="approve">
+        <button>Approve &amp; send</button>
+      </form>
+      <form class="inline row" method="post" action="/approvals/{{ r.approval_id }}">
+        <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="action" value="edit">
+        <input type="text" name="text" value="{{ r.draft }}" size="40">
+        <button>Edit &amp; send</button>
+      </form>
+      <form class="inline" method="post" action="/approvals/{{ r.approval_id }}">
+        <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="action" value="reject">
+        <button class="danger">Reject</button>
+      </form>
+    </div>
+    {% endif %}
   {% endif %}
 </div>
 {% endfor %}

@@ -11,6 +11,7 @@ import makeWASocket, {
 	type Contact,
 	DisconnectReason,
 	fetchLatestWaWebVersion,
+	isJidGroup,
 	isLidUser,
 	useMultiFileAuthState,
 	type WASocket
@@ -168,8 +169,41 @@ async function runServe(args: Args): Promise<void> {
 		secret,
 		log,
 		onShutdown: () => void shutdown(),
+		onCommand: (kind, payload) => {
+			if (kind === 'send_text') void handleSend(payload)
+			else log(`ignored unknown command kind=${kind}`)
+		},
 		helloInfo: () => ({ sidecar_version: SIDECAR_VERSION, baileys_version: BAILEYS_VERSION, ...state })
 	})
+
+	// ---- sending (M4). Core's Outbox decides *whether* to send; this only refuses unsafe targets,
+	// duplicates, and sending while disconnected. Plain text only: no media, no links preview.
+	const sentIds = new Map<string, number>()
+	const handleSend = async (p: Record<string, unknown>): Promise<void> => {
+		const id = typeof p.client_msg_id === 'string' ? p.client_msg_id : ''
+		const jid = typeof p.chat_jid === 'string' ? p.chat_jid : ''
+		const text = typeof p.text === 'string' ? p.text : ''
+		const reply = (ok: boolean, extra: Record<string, unknown> = {}): void =>
+			server.emit('send.result', { client_msg_id: id, ok, ...extra })
+		if (!id || !jid || !text.trim()) return reply(false, { error: 'bad request' })
+		if (sentIds.has(id)) return reply(false, { error: 'duplicate client_msg_id', duplicate: true })
+		if (shouldIgnoreJid(jid) || isJidGroup(jid)) return reply(false, { error: 'refusing to send to this chat' })
+		if (text.length > 2000) return reply(false, { error: 'text too long' })
+		const s = sock
+		if (!s || state.state !== 'open') return reply(false, { error: 'WhatsApp is not connected' })
+		sentIds.set(id, Date.now())
+		for (const [k, t] of sentIds) if (Date.now() - t > 24 * 3600_000) sentIds.delete(k)
+		try {
+			await s.sendPresenceUpdate('composing', jid)
+			await new Promise(r => setTimeout(r, Math.min(4000, 400 + text.length * 40)))
+			const msg = await s.sendMessage(jid, { text }, { linkPreview: null } as never)
+			await s.sendPresenceUpdate('paused', jid).catch(() => {})
+			log(`sent message ${msg?.key?.id ?? '?'}`)
+			reply(true, { wa_msg_id: msg?.key?.id ?? null })
+		} catch (err) {
+			reply(false, { error: err instanceof Error ? err.message.slice(0, 200) : 'send failed' })
+		}
+	}
 	await server.start()
 	log(`listening on 127.0.0.1:${server.port}`)
 

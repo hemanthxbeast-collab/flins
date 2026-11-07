@@ -31,6 +31,23 @@ _DENIES_AI = re.compile(
     r"|\bthis\s+is\s+(?:really\s+)?(?:me|hemanth)\b(?!.*assistant)",
     re.I,
 )
+# Writing *as* the user ("I'm travelling", "main kaam kar raha hoon") instead of about them.
+# "I" is fine only for FLINS itself: "I'll pass it on", "I'm FLINS, his assistant".
+_SPEAKS_AS_USER = re.compile(
+    r"\bI\s*(?:'|\u2019)?(?:m|am|was|ve|have|ll|will|d)\b"
+    r"(?!.{0,30}\b(?:FLINS|assistant|pass|let (?:him|her)|tell (?:him|her)|ask (?:him|her)|"
+    r"remind (?:him|her)|check with (?:him|her)|make sure (?:he|she))\b)"
+    r"|\b(?:main|mai|mujhe|mera|meri|mere|hoon|hu|hun)\b",
+    re.IGNORECASE,
+)
+# Claims the user is free right now. Wrong (and risky) while a busy mode is on.
+_CLAIMS_FREE_NOW = re.compile(
+    r"\b(?:free|available|done with work|off work)\s+(?:now|right now|rn|at the moment)\b"
+    r"|\b(?:he|she)(?:'|\u2019)?s\s+(?:free|available)\b"
+    r"|\bjust\s+(?:wrapped up|finished|got done)\b"
+    r"|\b(?:abhi|ab)\s+free\b|\bfree\s+ho\s+(?:gaya|gayi|gaye)\b",
+    re.IGNORECASE,
+)
 # Signs the reply is following instructions smuggled into the thread.
 _INJECTION_ECHO = re.compile(
     r"ignore (?:all |your |previous )|system prompt|as an ai language model|my instructions",
@@ -54,6 +71,7 @@ class GuardInput:
     min_confidence_auto: float = 0.75
     min_confidence_draft: float = 0.40
     allow_links: bool = False
+    busy: bool = False  # a busy mode (working / focus / away) is on
 
 
 @dataclass(frozen=True)
@@ -128,6 +146,13 @@ def check(g: GuardInput) -> GuardResult:
     if _DENIES_AI.search(reply):
         failures.append("claims to be a person or the user")
         severe = True
+
+    if g.busy and _CLAIMS_FREE_NOW.search(reply):
+        failures.append("says the user is free, but a busy mode is on")
+        severe = True
+
+    if _SPEAKS_AS_USER.search(reply):  # FLINS speaks about the user, never as the user
+        failures.append("writes as if it were the user (should say he/she)")
 
     if _INJECTION_ECHO.search(reply):
         failures.append("echoes instructions from the thread")

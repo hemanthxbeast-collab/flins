@@ -1,0 +1,32 @@
+# What FLINS may tell people about you when it drafts replies. Copy to about_me.yaml and edit
+# (about_me.yaml is git-ignored). FLINS never states anything about your life that isn't here.
+#
+# share_with decides who may hear each fact:
+#   everyone  anyone, even numbers not in your contacts
+#   known     anyone in your contacts
+#   trusted   people you marked trusted or inner on the dashboard
+#   inner     only people you marked inner (close family)
+# If you leave share_with out, it's "trusted".
+#
+# Keep it to things you'd happily say yourself. No passwords, codes, bank details or addresses
+# you wouldn't text to that group anyway.
+
+facts: []
+# Examples (remove the # to use):
+#  - fact: "Hemanth is an engineering student."
+#    share_with: known
+#  - fact: "He's usually free after 7pm on weekdays."
+#    share_with: trusted
+#  - fact: "He's at the office on weekdays, working from home on Fridays."
+#    share_with: trusted
+#  - fact: "He's travelling to Hyderabad this weekend."
+#    share_with: inner
+
+# Ready answers for questions people often ask.
+answers: []
+#  - question: "Did you get my email / file?"
+#    answer: "He checks email in the evening and will reply then."
+#    share_with: known
+#  - question: "When is the next exam?"
+#    answer: "He'll share the schedule himself."
+#    share_with: trusted

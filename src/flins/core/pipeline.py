@@ -8,6 +8,7 @@ sends] -> record. Nothing is sent: "would send" is recorded and shown (the outbo
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 import aiosqlite
 
+from flins.core.approvals import create_for_draft
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock, from_iso, to_iso
 from flins.core.debounce import Debouncer
@@ -22,6 +24,7 @@ from flins.core.events import Event, EventBus
 from flins.core.guard import GuardInput, GuardResult, check
 from flins.core.levels import Level, Mode
 from flins.core.modes import ModeManager, ModeState, effective_mode
+from flins.core.outbox import OutboxError, enqueue, holding_reply_sent_this_session
 from flins.core.policy import (
     Decision,
     DecisionInputs,
@@ -36,7 +39,7 @@ from flins.core.triage import TriageResult, fallback_category
 from flins.llm.context import Line, render_conversation
 from flins.llm.gateway import LLMError, LLMGateway
 from flins.llm.services import Drafter, RedFlagChecker, Triager
-from flins.settings import ToneConfig
+from flins.settings import AboutMe, ToneConfig
 
 IDENTICAL_WINDOW = timedelta(minutes=10)
 THREAD_LINES = 10
@@ -76,7 +79,9 @@ class Pipeline:
         brain: Brain | None = None,
         triage: TriageProvider | None = None,
         tones: ToneConfig | None = None,
+        about: AboutMe | None = None,
         debounce: bool = False,
+        rng: random.Random | None = None,
     ) -> None:
         self._conn = conn
         self._bus = bus
@@ -87,6 +92,8 @@ class Pipeline:
         self._brain = brain
         self._triage_override = triage
         self._tones = tones or ToneConfig()
+        self._about = about or AboutMe()
+        self._rng = rng or random.Random()
         self._tz = ZoneInfo(policy.user.timezone)
         lim = policy.limits
         self._debouncer = (
@@ -174,10 +181,10 @@ class Pipeline:
             return f"{mode.value} until {self._local(state.until)}"
         return mode.value
 
-    def _facts(self, mode: Mode, until: datetime | None) -> list[str]:
-        """The only things the drafter may state about the user."""
+    def _facts(self, mode: Mode, until: datetime | None, tier: str = "unknown") -> list[str]:
+        """The only things the drafter may state about the user (about_me.yaml, by tier)."""
         user = self._policy.user.name
-        facts = [f"I am FLINS, {user}'s assistant."]
+        facts = [f"I am FLINS, {user}'s assistant.", *self._about.for_tier(tier)]
         if mode in TIMED_MODES and until is not None:
             word = {"WORKING": "working", "FOCUS": "in deep focus", "AWAY": "away"}[mode.value]
             facts += [
@@ -296,8 +303,23 @@ class Pipeline:
             decision, outcome = await self._draft(
                 decision, msgs, contact, state.until, mode, conversation, texts
             )
+        auto = False
+        if (
+            outcome is not None
+            and outcome.would_send
+            and decision.level == Level.AUTO_SAFE
+            and self._policy.auto_replies == "holding_only"
+        ):
+            since = await self._modes.session_started_at()
+            if await holding_reply_sent_this_session(self._conn, chat, since):
+                decision = decision.with_ceiling(
+                    "holding_once", Level.NOTIFY, "holding reply already sent this session"
+                )
+                outcome = replace(outcome, would_send=False)
+            else:
+                auto = True
         await self._record(
-            msgs, contact, mode.value, tier, decision, triage, llm_triage, outcome, now
+            msgs, contact, mode.value, tier, decision, triage, llm_triage, outcome, now, auto
         )
         return decision
 
@@ -345,7 +367,7 @@ class Pipeline:
         never: list[str] = json.loads(contact["never_mention"]) if contact is not None else []
         tone = self._tone(contact, tier)
         max_chars = int(str(tone.get("max_chars", 160)))
-        facts = self._facts(mode, until)
+        facts = self._facts(mode, until, tier)
         signature = self._policy.user.signature if disclose else ""
 
         # AUTO_SAFE: a fixed template. No LLM involved.
@@ -356,6 +378,7 @@ class Pipeline:
                 self._policy.templates[template]
                 .format(
                     name=first_name,
+                    user=self._policy.user.name,
                     until=self._local(until)
                     if until is not None and mode in TIMED_MODES
                     else "later",
@@ -422,6 +445,7 @@ class Pipeline:
                 min_confidence_auto=d.min_confidence_auto,
                 min_confidence_draft=d.min_confidence_draft,
                 allow_links=self._policy.limits.allow_links_in_auto,
+                busy=mode in TIMED_MODES,
             )
         )
         if not guard.ok:
@@ -461,6 +485,7 @@ class Pipeline:
         llm_triage: bool,
         outcome: DraftOutcome | None,
         now: datetime,
+        auto: bool = False,
     ) -> None:
         ts = to_iso(now)
         anchor = msgs[-1]
@@ -493,14 +518,15 @@ class Pipeline:
                 json.dumps(sorted(decision.flags)),
                 int(decision.escalate),
                 int(decision.interrupt),
-                "triage_v1" if llm_triage else None,
+                self._brain.triager.prompt_version if llm_triage and self._brain else None,
                 "claude-haiku-5-5" if llm_triage else None,
                 ts,
             ),
         )
         decision_id = cur.lastrowid
+        approval_short_id: int | None = None
         if outcome is not None:
-            await self._conn.execute(
+            cur = await self._conn.execute(
                 "INSERT INTO drafts (decision_id, text, confidence, guard_results, source, "
                 "would_send, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -513,7 +539,35 @@ class Pipeline:
                     ts,
                 ),
             )
+            assert cur.lastrowid is not None and decision_id is not None
+            if not auto:
+                _, approval_short_id = await create_for_draft(
+                    self._conn,
+                    draft_id=cur.lastrowid,
+                    decision_id=decision_id,
+                    now=now,
+                    expiry=timedelta(minutes=self._policy.approvals.expiry_minutes),
+                )
         await self._conn.commit()
+        auto_queued = False
+        if auto and outcome is not None and decision_id is not None:
+            lo, hi = self._policy.limits.send_delay_seconds
+            try:
+                await enqueue(
+                    self._conn,
+                    kind="auto",
+                    chat_jid=anchor["chat_jid"],
+                    text=outcome.text,
+                    level=int(decision.level),
+                    now=now,
+                    decision_id=decision_id,
+                    delay=timedelta(seconds=self._rng.uniform(lo, hi)),
+                )
+                auto_queued = True
+            except OutboxError as exc:
+                await self._audit.record(
+                    "pipeline", "auto_reply.skipped", {"decision_id": decision_id, "why": str(exc)}
+                )
         trace = decision.trace()
         await self._audit.record(
             "pipeline",
@@ -537,6 +591,8 @@ class Pipeline:
                 "contact_name": self._name(contact) if contact is not None else None,
                 "draft": outcome.text if outcome else None,
                 "would_send": bool(outcome and outcome.would_send),
+                "approval": approval_short_id,
+                "auto_queued": auto_queued,
                 **trace,
             },
         )

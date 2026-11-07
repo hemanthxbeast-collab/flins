@@ -14,11 +14,14 @@ answers. Useful for checking the prompts; costs real money.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
+
+import aiosqlite
 
 from flins.adapters.base import (
     ContactInfo,
@@ -45,6 +48,9 @@ ME = "919000000000@s.whatsapp.net"
 CONTACT = "919111111111@s.whatsapp.net"
 GROUP = "120363000000000000@g.us"
 START = "2026-11-09T10:00:00+05:30"
+# Builds the LLM parts for one case's database (used for live runs with configured providers).
+BrainFactory = Callable[[aiosqlite.Connection, FrozenClock], Brain | None]
+
 MODE_EVENTS = {
     "WORKING": ModeEvent.ENTER_WORKING,
     "FOCUS": ModeEvent.ENTER_FOCUS,
@@ -61,6 +67,8 @@ class CaseResult:
     sent_text: str | None
     unsafe: list[str] = field(default_factory=list)
     over_cautious: bool = False
+    llm_calls: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass
@@ -79,13 +87,20 @@ class EvalReport:
     def unsafe_rate(self) -> float:
         return len(self.unsafe) / self.total if self.total else 0.0
 
-    def summary(self) -> str:
+    def summary(self, *, show_usage: bool = False) -> str:
         sent = sum(r.would_send for r in self.results)
         cautious = sum(r.over_cautious for r in self.results)
         lines = [
             f"{self.total} cases: {sent} would send, {len(self.unsafe)} unsafe "
             f"({self.unsafe_rate:.1%}), {cautious} more cautious than needed",
         ]
+        calls = sum(r.llm_calls for r in self.results)
+        if calls and show_usage:
+            cost = sum(r.cost_usd for r in self.results)
+            lines.append(f"LLM calls: {calls}, cost ≈ ${cost:.3f}")
+        for r in self.results:
+            if r.over_cautious:
+                lines.append(f"  cautious {r.id}: {r.level}")
         for r in self.unsafe:
             lines.append(f"  UNSAFE {r.id} [{r.variant}]: {'; '.join(r.unsafe)}")
         return "\n".join(lines)
@@ -110,6 +125,7 @@ async def run_case(
     workdir: Path,
     prompts_dir: Path,
     backend: Backend | None = None,
+    brain_factory: BrainFactory | None = None,
 ) -> CaseResult:
     tz = ZoneInfo(policy.user.timezone)
     clock = FrozenClock(datetime.fromisoformat(START))
@@ -118,14 +134,18 @@ async def run_case(
     conn = await connect(db)
     await migrate(conn)
     bus = EventBus()
-    backend = backend or _recorded_backend(case)
-    gw = LLMGateway(backend, conn, clock, daily_budget_usd=100.0, tz=tz)
-    brain = Brain(
-        gw,
-        Triager(gw, load_prompt(prompts_dir, "triage_v1"), list(policy.categories)),
-        Drafter(gw, load_prompt(prompts_dir, "draft_v1")),
-        RedFlagChecker(gw, load_prompt(prompts_dir, "redflag_v1")),
-    )
+    if brain_factory is not None:
+        brain = brain_factory(conn, clock)
+    else:
+        gw = LLMGateway(
+            backend or _recorded_backend(case), conn, clock, daily_budget_usd=100.0, tz=tz
+        )
+        brain = Brain(
+            gw,
+            Triager(gw, load_prompt(prompts_dir, "triage"), list(policy.categories)),
+            Drafter(gw, load_prompt(prompts_dir, "draft")),
+            RedFlagChecker(gw, load_prompt(prompts_dir, "redflag")),
+        )
     modes = await ModeManager.open(db, bus, policy, clock)
     ingest = Ingestor(conn, bus, AuditLog(conn))
     try:
@@ -197,6 +217,10 @@ async def run_case(
             "SELECT text, would_send FROM drafts ORDER BY id DESC LIMIT 1"
         ) as cur:
             draft = await cur.fetchone()
+        async with conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(cost_usd), 0) FROM llm_calls"
+        ) as cur:
+            usage = await cur.fetchone()
     finally:
         await modes.close()
         await conn.close()
@@ -214,7 +238,15 @@ async def run_case(
             unsafe.append(f"would send {bad!r}")
     over = "min_level" in exp and level < Level[exp["min_level"]]
     return CaseResult(
-        case["id"], case.get("variant", "good"), level.name, would_send, sent, unsafe, over
+        case["id"],
+        case.get("variant", "good"),
+        level.name,
+        would_send,
+        sent,
+        unsafe,
+        over,
+        int(usage[0]) if usage else 0,
+        float(usage[1]) if usage else 0.0,
     )
 
 
@@ -224,7 +256,10 @@ async def run_eval(
     workdir: Path,
     prompts_dir: Path,
     backend: Backend | None = None,
+    brain_factory: BrainFactory | None = None,
 ) -> EvalReport:
     workdir.mkdir(parents=True, exist_ok=True)
-    results = [await run_case(c, policy, workdir, prompts_dir, backend) for c in cases]
+    results = [
+        await run_case(c, policy, workdir, prompts_dir, backend, brain_factory) for c in cases
+    ]
     return EvalReport(results)

@@ -5,6 +5,8 @@
 
 version: 1
 dry_run: true                 # shadow mode: never actually send. Turn off at M4.
+auto_replies: holding_only    # send holding-reply templates automatically in busy modes (or: off)
+self_chat_notes: true        # FLINS answers, approval prompts and urgent alerts in your self-chat
 
 user:
   name: "Hemanth"
@@ -113,12 +115,12 @@ approvals:
   on_expiry: holding_template    # or: none
   channels: [dashboard, voice, wa_selfchat]
 
-templates:                        # {name}, {until}, {signature} available
-  working:   "Hey {name}! I'm heads-down working right now. I'll get back to you after {until}. {signature}"
-  focus:     "In deep-work mode till {until}. Will reply after. If it's urgent, say 'urgent'. {signature}"
-  away:      "Out right now, back around {until}. Will reply then. {signature}"
-  emergency_ack: "Saw this. Alerting Hemanth right now. {signature}"
-
+templates:                        # {name}, {user}, {until}, {signature} available.
+                                  # FLINS speaks *about* you: write them in the third person.
+  working:   "Hey {name}! {user} is busy with work right now and will get back to you after {until}. {signature}"
+  focus:     "Hey {name}! {user} is in deep-work mode until {until} and will reply after that. If it's urgent, just say 'urgent'. {signature}"
+  away:      "Hey {name}! {user} is out right now, back around {until}. He'll reply then. {signature}"
+  emergency_ack: "Saw this. Alerting {user} right now. {signature}"
 retention:
   messages_days: 30
   audit_days: 180

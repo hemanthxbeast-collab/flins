@@ -6,21 +6,30 @@ from zoneinfo import ZoneInfo
 
 import aiosqlite
 
+from flins.core.approvals import ApprovalService, summarise
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock
 from flins.core.events import Event, EventBus
 from flins.core.grammar import ApprovalCommand, ModeCommand, ParseError, StatusCommand, parse
 from flins.core.modes import ModeManager, TransitionError
+from flins.core.outbox import SELF_PREFIX
 from flins.core.policy_schema import Policy
 
-APPROVALS_LATER = "Approvals arrive in M4. Nothing is waiting, because nothing is drafted yet."
+NO_APPROVALS = "Approvals only work while `flins run` is running."
 
 
 class CommandRouter:
-    def __init__(self, modes: ModeManager, policy: Policy, clock: Clock) -> None:
+    def __init__(
+        self,
+        modes: ModeManager,
+        policy: Policy,
+        clock: Clock,
+        approvals: ApprovalService | None = None,
+    ) -> None:
         self._modes = modes
         self._clock = clock
         self._tz = ZoneInfo(policy.user.timezone)
+        self._approvals = approvals
 
     async def handle_text(self, text: str, *, source: str) -> str | None:
         """Run a command. Returns reply text, or None if `text` isn't a command."""
@@ -33,7 +42,7 @@ class CommandRouter:
             await self._modes.refresh()
             return await self._modes.status_text()
         if isinstance(cmd, ApprovalCommand):
-            return APPROVALS_LATER
+            return await self._approval(cmd, source)
         assert isinstance(cmd, ModeCommand)
         try:
             result = await self._modes.apply(
@@ -42,6 +51,23 @@ class CommandRouter:
         except TransitionError as exc:
             return str(exc)
         return result.readback
+
+    async def _approval(self, cmd: ApprovalCommand, source: str) -> str:
+        if self._approvals is None:
+            return NO_APPROVALS
+        now = self._clock.now()
+        pending = await self._approvals.pending(now)
+        if cmd.op == "list":
+            return summarise(pending)
+        number = cmd.number
+        if number is None:
+            if len(pending) != 1:
+                return summarise(pending) if pending else "Nothing is waiting for approval."
+            number = pending[0].short_id
+        action = {"approve": "approve", "reject": "reject", "edit": "edit"}[cmd.op]
+        return await self._approvals.decide(
+            action, now=now, channel=source, short_id=number, text=cmd.text
+        )
 
 
 class SelfChatCommands:
@@ -64,11 +90,19 @@ class SelfChatCommands:
             row = await cur.fetchone()
         if row is None or not row[0]:
             return
+        if row[0].lstrip().startswith(SELF_PREFIX.strip()):
+            return  # FLINS's own note (see core/selfchat.py): never a command
+        async with self._conn.execute(
+            "SELECT 1 FROM outbox WHERE wa_msg_id = (SELECT wa_msg_id FROM messages WHERE id = ?)",
+            (d["message_id"],),
+        ) as cur:
+            if await cur.fetchone() is not None:
+                return  # something FLINS sent itself
         reply = await self._router.handle_text(row[0], source="self_chat")
         if reply is None:
             return
         await self._audit.record(
             "commands", "command.self_chat", {"message_id": d["message_id"], "reply": reply}
         )
-        # M4 sends this back into the self-chat. Until then it's shown where FLINS runs.
+        # SelfChatNotifier (M5) sends this back into the self-chat; flins run also prints it.
         await self._bus.publish("command.reply", {"source": "self_chat", "text": reply})
