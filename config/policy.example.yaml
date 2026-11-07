@@ -1,0 +1,120 @@
+# FLINS policy — example. Copy to policy.yaml and edit.
+# Levels: IGNORE(0) < NOTIFY(1) < DRAFT(2) < AUTO_SAFE(3) < AUTO(4)
+# Final level = min(mode ceiling, tier ceiling, contact max_level, category ceiling,
+#                   triage/sensitivity ceiling, skill max_level, budget ceiling)
+
+version: 1
+dry_run: true                 # shadow mode: never actually send. Turn off at M4.
+
+user:
+  name: "Hemanth"
+  signature: "— FLINS, Hemanth's assistant"
+  timezone: "Asia/Kolkata"
+  languages: ["en", "te", "hi"]
+
+modes:
+  NORMAL:
+    ceiling: NOTIFY
+    interrupt_threshold: 2        # urgency 0-3; ≥ this → spoken/toast alert
+  WORKING:
+    ceiling: AUTO
+    default_duration: 3h
+    interrupt_threshold: 3
+    holding_template: working
+    backlog: ignore_older
+  FOCUS:
+    ceiling: AUTO_SAFE
+    default_duration: 90m
+    interrupt_threshold: 3        # only emergencies break through
+    holding_template: focus
+  AWAY:
+    ceiling: AUTO_SAFE
+    default_duration: 2h
+    interrupt_threshold: 3
+    holding_template: away
+  PAUSED:
+    ceiling: IGNORE
+
+profiles:                         # optional overlays, chosen by voice: "working mood, strict"
+  working-strict:
+    base: WORKING
+    ceiling: AUTO_SAFE
+  working-open:
+    base: WORKING
+    tiers: { known: AUTO_SAFE }
+
+tiers:
+  inner:   { ceiling: AUTO_SAFE, tone: warm_family,  disclose_ai: true }
+  trusted: { ceiling: AUTO,      tone: casual,       disclose_ai: true }
+  known:   { ceiling: DRAFT,     tone: casual,       disclose_ai: true }
+  unknown: { ceiling: NOTIFY,    tone: professional, disclose_ai: true, holding_reply: false }
+  blocked: { ceiling: IGNORE }
+
+categories:
+  greeting_smalltalk:   AUTO
+  availability_query:   AUTO
+  logistics_eta:        AUTO_SAFE
+  scheduling:           DRAFT
+  work_task:            DRAFT
+  info_request_simple:  DRAFT
+  urgent_emergency:     { ceiling: AUTO_SAFE, escalate: true, template: emergency_ack }
+  money_payment:        NOTIFY
+  credentials_otp:      NOTIFY
+  personal_sensitive:   NOTIFY
+  conflict_emotional:   NOTIFY
+  media_only:           NOTIFY
+  group_message:        IGNORE
+  spam_promo:           IGNORE
+  unknown:              DRAFT
+
+sensitivity_caps:               # any flag set by hard rules or triage → cap
+  money: NOTIFY
+  credentials: NOTIFY
+  pii: NOTIFY
+  commitment: DRAFT
+  legal_medical: NOTIFY
+  injection_suspected: NOTIFY
+
+hard_rules:
+  emergency_keywords: ["emergency", "accident", "hospital", "urgent", "call me now", "asap call", "please pick up"]
+  money_patterns: ['₹\s?\d', '\brs\.?\s?\d', '\bupi\b', '\bgpay\b', '\bphonepe\b', '\bpaytm\b', 'send money', '\bloan\b', 'transfer']
+  credential_patterns: ['\botp\b', 'verification code', '\bpassword\b', '\bpin\b', '\bcvv\b']
+  groups:
+    allowlist: []               # group JIDs where @mentions may NOTIFY
+  loop_detection:
+    fast_reply_seconds: 5
+    fast_reply_count: 2
+    identical_msg_count: 3
+
+limits:
+  per_contact_max_auto_per_hour: 2
+  global_max_auto_per_hour: 20
+  global_max_auto_per_day: 80
+  debounce_quiet_seconds: 25
+  debounce_max_seconds: 90
+  send_delay_seconds: [20, 90]
+  typing_chars_per_second: 8
+  only_reply_if_contact_initiated: true
+  allow_links_in_auto: false
+  daily_llm_budget_usd: 2.00    # exceeded → budget ceiling = NOTIFY
+
+drafting:
+  min_confidence_auto: 0.75
+  min_confidence_draft: 0.40
+  max_thread_messages: 10
+  redflag_check: true
+
+approvals:
+  expiry_minutes: 30
+  on_expiry: holding_template    # or: none
+  channels: [dashboard, voice, wa_selfchat]
+
+templates:                        # {name}, {until}, {signature} available
+  working:   "Hey {name}! I'm heads-down working right now. I'll get back to you after {until}. {signature}"
+  focus:     "In deep-work mode till {until}. Will reply after. If it's urgent, say 'urgent'. {signature}"
+  away:      "Out right now, back around {until}. Will reply then. {signature}"
+  emergency_ack: "Saw this. Alerting Hemanth right now. {signature}"
+
+retention:
+  messages_days: 30
+  audit_days: 180

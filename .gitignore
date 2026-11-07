@@ -1,0 +1,25 @@
+# Secrets and private runtime data: never commit (CLAUDE.md invariant 11)
+.env
+data/
+config/flins.yaml
+config/policy.yaml
+config/contacts.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+build/
+
+# Node (WhatsApp sidecar, from M1)
+node_modules/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

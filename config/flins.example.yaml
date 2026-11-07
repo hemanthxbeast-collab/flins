@@ -1,0 +1,14 @@
+# FLINS app config: example. Copy to flins.yaml to customise (flins.yaml is git-ignored).
+# Secrets do NOT go here. Put them in .env.
+
+paths:
+  data_dir: data                 # relative to the project root
+  db_file: flins.db              # inside data_dir
+
+network:
+  dashboard_port: 8765           # 127.0.0.1 only
+  sidecar_port: 8766             # 127.0.0.1 only
+  skilldev_port: 8767
+
+logging:
+  level: INFO                    # message text is never logged to files at INFO
