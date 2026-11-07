@@ -22,6 +22,9 @@ def example_policy_dict() -> dict[str, Any]:
 def project(tmp_path: Path) -> Path:
     """A throwaway FLINS project root using the example configs."""
     (tmp_path / "pyproject.toml").write_text("[project]\nname='flins-test'\n", encoding="utf-8")
-    shutil.copytree(REPO_ROOT / "config", tmp_path / "config",
-                    ignore=shutil.ignore_patterns("flins.yaml", "policy.yaml", "contacts.yaml"))
+    shutil.copytree(
+        REPO_ROOT / "config",
+        tmp_path / "config",
+        ignore=shutil.ignore_patterns("flins.yaml", "policy.yaml", "contacts.yaml"),
+    )
     return tmp_path

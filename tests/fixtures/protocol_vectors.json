@@ -1,0 +1,13 @@
+{
+  "secret": "test-secret-0123456789abcdef0123456789abcdef",
+  "cases": [
+    {
+      "body": "{\"v\":1,\"kind\":\"hello\",\"id\":\"00000000-0000-4000-8000-000000000001\",\"ts\":1762500000000,\"payload\":{\"client\":\"flins-core\"}}",
+      "sig": "dcb8063a5ead42f6e2ddddc0f0f0dbd42718264263701efc9f81decc7ad60e77"
+    },
+    {
+      "body": "{\"v\":1,\"kind\":\"message.received\",\"id\":\"00000000-0000-4000-8000-000000000002\",\"ts\":1762500000500,\"payload\":{\"wa_msg_id\":\"ABC\",\"text\":\"héllo 👋 \\\"quoted\\\"\"}}",
+      "sig": "6caeb4ce9d49bbef14b075f7fe2ddb88035a6ec5ff42c9a6e7501a0e5bcd7697"
+    }
+  ]
+}

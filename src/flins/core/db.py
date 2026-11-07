@@ -18,9 +18,7 @@ def utcnow_iso() -> str:
 def _migration_files() -> list[tuple[str, str]]:
     """(version, sql) pairs, sorted by file name, e.g. ('0001_init', '...')."""
     pkg = resources.files(MIGRATIONS_PACKAGE)
-    files = sorted(
-        (f for f in pkg.iterdir() if f.name.endswith(".sql")), key=lambda f: f.name
-    )
+    files = sorted((f for f in pkg.iterdir() if f.name.endswith(".sql")), key=lambda f: f.name)
     return [(f.name.removesuffix(".sql"), f.read_text(encoding="utf-8")) for f in files]
 
 
@@ -50,9 +48,7 @@ async def migrate(conn: aiosqlite.Connection) -> list[str]:
             continue
         # executescript commits first, so wrap the migration in its own transaction.
         await conn.executescript(
-            "BEGIN;\n"
-            + sql
-            + f"\nINSERT INTO schema_migrations (version, applied_at) "
+            "BEGIN;\n" + sql + f"\nINSERT INTO schema_migrations (version, applied_at) "
             f"VALUES ('{version}', '{utcnow_iso()}');\nCOMMIT;"
         )
         applied.append(version)

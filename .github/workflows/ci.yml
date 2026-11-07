@@ -10,6 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm --prefix wa-sidecar ci
+      - run: npm --prefix wa-sidecar test
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run mypy

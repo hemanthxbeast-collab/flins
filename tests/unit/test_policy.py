@@ -113,8 +113,12 @@ def test_bad_regex_rejected(example_policy_dict: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("3h", timedelta(hours=3)), ("90m", timedelta(minutes=90)),
-     ("1h30m", timedelta(minutes=90)), (45, timedelta(minutes=45))],
+    [
+        ("3h", timedelta(hours=3)),
+        ("90m", timedelta(minutes=90)),
+        ("1h30m", timedelta(minutes=90)),
+        (45, timedelta(minutes=45)),
+    ],
 )
 def test_parse_duration(raw: Any, expected: timedelta) -> None:
     assert parse_duration(raw) == expected
