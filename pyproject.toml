@@ -68,7 +68,7 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 # Voice libraries ship without type information.
-module = ["sounddevice", "pynput", "pynput.*", "pyttsx3", "faster_whisper", "ctranslate2"]
+module = ["sounddevice", "pynput", "pynput.*", "pyttsx3", "faster_whisper", "ctranslate2", "numpy", "numpy.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
