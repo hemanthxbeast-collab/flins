@@ -111,7 +111,7 @@ _SOUNDS = (
 
 def sound_key(name: str) -> str:
     """A rough 'sounds like' key for Indian names as speech-to-text spells them:
-    'Rahul' / 'Roul' -> 'rl', 'Radhika' / 'Radika' -> 'ysd'."""
+    'Rahul' / 'Roul' -> 'rl', 'Radhika' / 'Radika' -> 'rdk'."""
     s = "".join(ch for ch in name.lower() if ch.isalpha())
     for a, b in _SOUNDS:
         s = s.replace(a, b)
