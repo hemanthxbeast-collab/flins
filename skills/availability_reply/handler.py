@@ -46,6 +46,8 @@ def run(inp, ctx):
     if inp.get("signature"):
         text = f"{text} {inp['signature']}"
     return {
-        "proposals": [{"kind": "reply", "text": text, "confidence": 0.9, "facts_used": ["free_at"]}],
+        "proposals": [
+            {"kind": "reply", "text": text, "confidence": 0.9, "facts_used": ["free_at"]}
+        ],
         "facts": {"free_at": free_at},
     }

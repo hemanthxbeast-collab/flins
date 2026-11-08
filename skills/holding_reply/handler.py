@@ -1,7 +1,9 @@
 """Mode-aware holding reply: "{user} is working until {until}, will reply after"."""
 
 TEXT = {
-    "WORKING": "Hey {name}! {user} is busy with work until {until} and will get back to you after that.",
+    "WORKING": (
+        "Hey {name}! {user} is busy with work until {until} and will get back to you after that."
+    ),
     "FOCUS": (
         "Hey {name}! {user} is in deep-work mode until {until} and will reply after that. "
         "If it's urgent, just say 'urgent'."

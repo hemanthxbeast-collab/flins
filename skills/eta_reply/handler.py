@@ -7,7 +7,8 @@ def run(inp, ctx):
     contact = inp.get("contact") or {}
     until = inp.get("until_local")
     when = f"should be back around {until}" if until else "will reply when back"
-    text = f"Hi {contact.get('first_name') or 'there'}, {inp['user_name']} is out right now and {when}."
+    name = contact.get("first_name") or "there"
+    text = f"Hi {name}, {inp['user_name']} is out right now and {when}."
     if inp.get("signature"):
         text = f"{text} {inp['signature']}"
     return {"proposals": [{"kind": "reply", "text": text, "confidence": 1.0}]}

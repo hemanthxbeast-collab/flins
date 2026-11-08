@@ -32,7 +32,9 @@ def run(inp, ctx):
         return {"proposals": [{"kind": "note", "text": "Nothing new while you were busy."}]}
     people = {}
     for m in recent:
-        p = people.setdefault(m["who"], {"n": 0, "urgent": False, "scam": False, "last": "", "actions": set()})
+        p = people.setdefault(
+            m["who"], {"n": 0, "urgent": False, "scam": False, "last": "", "actions": set()}
+        )
         p["n"] += 1
         p["urgent"] = p["urgent"] or bool(m.get("urgent"))
         p["scam"] = p["scam"] or "credentials" in (m.get("flags") or [])
@@ -48,5 +50,7 @@ def run(inp, ctx):
             what += ", looked like a scam"
         count = f" ({p['n']})" if p["n"] > 1 else ""
         lines.append(f'{mark}{who}{count}: "{_short(p["last"])}" ({what})')
-    head = f"{len(recent)} message{'s' if len(recent) != 1 else ''} from {len(people)} {'person' if len(people) == 1 else 'people'}."
+    msgs = "message" if len(recent) == 1 else "messages"
+    ppl = "person" if len(people) == 1 else "people"
+    head = f"{len(recent)} {msgs} from {len(people)} {ppl}."
     return {"proposals": [{"kind": "note", "text": " ".join([head, *lines])}]}
