@@ -90,6 +90,9 @@ hard_rules:
   money_patterns: ['₹\s?\d', '\brs\.?\s?\d', '\bupi\b', '\bgpay\b', '\bphonepe\b', '\bpaytm\b',
                    'send money', '\bloan\b', 'transfer', '\bpaise\b', '\bpaisa\b', 'bhej do paise']
   credential_patterns: ['\botp\b', 'verification code', '\bpassword\b', '\bpin\b', '\bcvv\b']
+  # Health and legal words are built in (doctor, medicine, test results, police, court...).
+  # Add your own, e.g. in Telugu/Hindi:
+  sensitive_patterns: []
   groups:
     allowlist: []               # group JIDs where @mentions may NOTIFY
   loop_detection:

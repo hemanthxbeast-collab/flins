@@ -71,7 +71,10 @@ voice:
                           # English) | best (medium, slow, 1.5 GB). stt_model: <name> overrides.
   stt_device: cpu         # cuda = NVIDIA GPU (needs CUDA 12 + cuDNN installed)
   language: en            # en stops short clips being read as German; null = detect every time
-  tts: sapi               # sapi = Windows voices, print = show text only
+  tts: sapi               # sapi = Windows voices; piper = more natural (first run:
+                          # uv run flins voice download); print = show text only
+  piper_voice: en_US-lessac-medium   # list: uv run flins voice download --list
+  piper_speed: 1.0
   tts_voice: null         # e.g. "Zira", "David", "Heera" (see: uv run flins voice voices)
   tts_rate: 185
   speak_alerts: true      # say urgent alerts, expiry warnings and the summary out loud

@@ -203,7 +203,15 @@ password manager: without it a backup can't be opened. `flins run` makes one a d
 Wake word: set `voice.wake_word: true` in `config/flins.yaml`, then say "FLINS" (or "FLINS,
 status" in one go). It listens locally and saves nothing.
 
+## More natural voice (Piper)
+```powershell
+uv run flins voice download          # once, ~60 MB (or: download --list to choose another voice)
+```
+Then in `config/flins.yaml` under `voice:` set `tts: piper`. Test with `uv run flins voice say hello`.
+
 ## Dashboard
+You can also pair WhatsApp from the dashboard's **WhatsApp** page (it shows the QR code).
+
 `flins run` serves it at http://127.0.0.1:8765 (or run `uv run flins dashboard` on its own).
 Inbox with every decision and a "why?" page, drafts FLINS would send or is holding back,
 contact tiers (set your family to `inner` and close friends to `trusted` here), and stop/resume.

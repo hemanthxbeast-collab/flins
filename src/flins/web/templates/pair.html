@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block head %}{% if running %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block body %}
+<div class="card">
+  <h2 style="margin-top:0">WhatsApp</h2>
+  {% if paired and not running %}
+    <p class="lvl-auto">FLINS is paired with your WhatsApp as a linked device.</p>
+    {% if state and state.state == "paired" %}<p>Paired just now. Restart <code>flins run</code> so it connects.</p>{% endif %}
+    <p class="muted">To unlink: WhatsApp on your phone → Settings → Linked devices. To pair again from scratch: <code>flins wa pair --force</code>.</p>
+  {% elif running %}
+    {% if qr %}
+      <p>On your phone: WhatsApp → Settings → <b>Linked devices</b> → <b>Link a device</b>, then scan:</p>
+      <div style="background:#fff;display:inline-block;padding:8px;border-radius:6px">{{ qr }}</div>
+      <p class="muted">The code changes every ~20 seconds; this page refreshes by itself.</p>
+    {% elif state and state.state == "paired" %}
+      <p class="lvl-auto">Paired{% if state.name %} as {{ state.name }}{% endif %}. Finishing up…</p>
+    {% else %}
+      <p class="muted">Starting… the QR appears in a few seconds.</p>
+    {% endif %}
+  {% else %}
+    {% if state and state.state == "failed" %}<p class="urgent">{{ state.reason }}</p>{% endif %}
+    <p>FLINS isn't paired with WhatsApp yet. It links as a device, like WhatsApp Web, and reads your chats from this PC.</p>
+    <form method="post" action="/pair">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button>Show the QR code</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

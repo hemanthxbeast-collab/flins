@@ -47,6 +47,41 @@ BUILTIN_MONEY = [
     r"\bifsc\b",
 ]
 BUILTIN_EMERGENCY = ["emergency", "accident", "hospital", "ambulance", "urgent"]
+# Health and legal matters (invariant 7: NOTIFY only). Deterministic, so a fooled or confused
+# AI triage can't miss them. Specific phrases only: "report" or "scan" alone are too common.
+BUILTIN_SENSITIVE = [
+    r"\bdoctors?\b",
+    r"\bdr\.?\s",
+    r"\bclinic\b",
+    r"\bmedicines?\b",
+    r"\bmedication\b",
+    r"\bprescription\b",
+    r"\btablets?\b",
+    r"\bfever\b",
+    r"\bsurgery\b",
+    r"\bsymptoms?\b",
+    r"\bdiagnos\w*",
+    r"\bbiopsy\b",
+    r"\bmri\b",
+    r"\bct scan\b",
+    r"\bx-?ray\b",
+    r"\bpregnan\w*",
+    r"\bblood (?:test|report|sugar|pressure)\b",
+    r"\b(?:test|lab|medical|scan|blood) (?:results?|reports?)\b",
+    r"\b(?:results?|reports?) (?:came|have come|are|is) (?:back|ready|out|in)\b",
+    r"\bdawai\b",
+    r"\bdavai\b",
+    r"\bbimar\w*",
+    r"\btabiyat\b",
+    r"\blawyers?\b",
+    r"\badvocate\b",
+    r"\bcourt\b",
+    r"\bpolice\b",
+    r"\bfir\b",
+    r"\blegal notice\b",
+    r"\bsummons\b",
+    r"\blawsuit\b",
+]
 
 ACTIONS: dict[Level, str] = {
     Level.IGNORE: "ignore",
@@ -234,6 +269,18 @@ def evaluate_hard_rules(ctx: RuleContext, policy: Policy) -> list[RuleHit]:
                 cap=Level.NOTIFY,
                 flags=frozenset({"money"}),
                 category="money_payment",
+            )
+        )
+
+    sensitive = _compile(tuple(BUILTIN_SENSITIVE + hr.sensitive_patterns))
+    if text and sensitive and sensitive.search(text):
+        hits.append(
+            RuleHit(
+                "legal_medical",
+                "about health or a legal matter",
+                cap=Level.NOTIFY,
+                flags=frozenset({"legal_medical"}),
+                category="personal_sensitive",
             )
         )
 

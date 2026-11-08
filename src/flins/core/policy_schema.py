@@ -116,12 +116,13 @@ class HardRules(_Strict):
     emergency_keywords: list[str] = Field(default_factory=list)
     money_patterns: list[str] = Field(default_factory=list)
     credential_patterns: list[str] = Field(default_factory=list)
+    sensitive_patterns: list[str] = Field(default_factory=list)  # health / legal
     groups: GroupRules = Field(default_factory=GroupRules)
     loop_detection: LoopDetection = Field(default_factory=LoopDetection)
 
     @model_validator(mode="after")
     def _patterns_compile(self) -> HardRules:
-        for pattern in [*self.money_patterns, *self.credential_patterns]:
+        for pattern in [*self.money_patterns, *self.credential_patterns, *self.sensitive_patterns]:
             try:
                 re.compile(pattern)
             except re.error as exc:

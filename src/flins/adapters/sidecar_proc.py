@@ -57,6 +57,33 @@ class Sidecar:
         self.auth_dir.parent.mkdir(parents=True, exist_ok=True)
         return subprocess.call([node, str(self.script), "--pair", "--auth-dir", str(self.auth_dir)])
 
+    @property
+    def pair_file(self) -> Path:
+        return self.auth_dir.parent / "pairing.json"
+
+    async def start_pairing(self) -> asyncio.subprocess.Process:
+        """Pairing for the dashboard: the QR goes to `pair_file` instead of a terminal."""
+        node = self._node()
+        self.auth_dir.parent.mkdir(parents=True, exist_ok=True)
+        self.pair_file.unlink(missing_ok=True)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        log = self.log_path.open("ab")
+        try:
+            return await asyncio.create_subprocess_exec(
+                node,
+                str(self.script),
+                "--pair",
+                "--auth-dir",
+                str(self.auth_dir),
+                "--qr-file",
+                str(self.pair_file),
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=log,
+                stderr=log,
+            )
+        finally:
+            log.close()
+
     async def start(self, secret: str) -> None:
         node = self._node()
         if port_open(self.port):

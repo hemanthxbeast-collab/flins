@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.1: Safer triage, IST times, Piper voice, QR pairing on the dashboard (2026-11-08)
+- **Health and legal messages are caught without the AI:** a built-in rule (doctor, medicines,
+  test results, "reports are ready", fever, police, court, lawyer, legal notice, …) caps them at
+  "just tell you", even if triage misreads them. Add your own words in
+  `hard_rules.sensitive_patterns`. Emergencies ("dad is in hospital") still get the urgent
+  acknowledgement. Triage prompt `triage_v2` also names vague health cues.
+- **Dashboard times are in your time zone** (IST) instead of UTC.
+- **Piper voice** (`voice.tts: piper`): a more natural offline voice. Download one with
+  `flins voice download` (default `en_US-lessac-medium`; `--list` shows all).
+- **Pair WhatsApp from the dashboard:** the new WhatsApp page shows the QR code. The sidecar
+  draws it with the encoder it already had, so no new package and no outside scripts.
+- CI: GitHub Actions updated off Node.js 20 (checkout v7, setup-node v7, setup-uv v10).
+- Tests: 693 Python, 11 Node.
+
 ## 0.9.0: M9 earned auto replies, tone learning, backups, autostart, wake word (2026-11-08)
 - **Earned auto replies:** with `auto_replies: unlocked`, FLINS sends its AI replies without
   review to contacts you opted in (`flins contacts auto "<name>" on`, or the Contacts page),

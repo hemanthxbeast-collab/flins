@@ -2,6 +2,21 @@
 
 Short records of choices made while building. Newest first.
 
+## 0.9.1: triage, times, Piper, pairing (2026-11-08)
+- **Health/legal is a hard rule now, not only an AI judgement.** Live testing showed Groq
+  missing "results came back, call when you can". Invariant 7 says such messages are NOTIFY
+  only, so a deterministic list of specific phrases does it (bare "report" or "scan" are too
+  common and left out). "Hospital", "ambulance" and "ICU" stay with the emergency rule, which
+  alerts you and sends the urgent acknowledgement; flagging them as medical would have blocked
+  that (the eval caught it).
+- **Piper** comes from the voice extra (`piper-tts` 1.8, on the stack list). Voice models aren't
+  bundled: `flins voice download` fetches one from Piper's official collection when you ask.
+  Not tried with a real voice model during development, only with a fake synthesiser.
+- **QR on the dashboard without a new dependency:** `qrcode-terminal` already contains a QR
+  encoder. The sidecar writes the grid of squares to `data/pairing.json`; the dashboard draws
+  inline SVG from it after checking its shape. Starting pairing needs the page token, like every
+  other dashboard action.
+
 ## M9: earned autonomy, tone, backups, autostart, wake word (2026-11-08)
 - **What counts toward earning auto replies:** only FLINS's AI drafts (not templates or skill
   replies). "Sent" = approved or edited; the 10% limit counts edits **and rejections** against

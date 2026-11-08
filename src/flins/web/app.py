@@ -14,16 +14,19 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import aiosqlite
 from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
+from flins.adapters.sidecar_proc import Sidecar, SidecarSetupError
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.autonomy import auto_stats, set_optin
-from flins.core.clock import Clock, SystemClock, to_iso
+from flins.core.clock import Clock, SystemClock, from_iso, to_iso
 from flins.core.commands import CommandRouter
 from flins.core.db import connect
 from flins.core.events import EventBus
@@ -35,6 +38,7 @@ from flins.skilldev.review import Reviewer
 from flins.skilldev.workspace import NAME, WorkspaceError
 from flins.skills.engine import SkillEngine
 from flins.skills.lock import LOCK_FILE, SkillLock
+from flins.web.qr import qr_svg, read_pair_state
 
 TIERS = ["inner", "trusted", "known", "unknown", "blocked"]
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -58,9 +62,22 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="FLINS", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.token = token or secrets.token_urlsafe(24)
+    app.state.pairing = None  # the `--pair` sidecar process started from /pair
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     clk = clock or SystemClock()
     reviewer = Reviewer(settings) if settings is not None else None
+    tz = ZoneInfo(policy.user.timezone)
+
+    def local(value: object, fmt: str = "%H:%M") -> str:
+        """Stored times are UTC; show them in your time zone (e.g. IST)."""
+        if not value:
+            return ""
+        try:
+            return from_iso(str(value)).astimezone(tz).strftime(fmt)
+        except ValueError:
+            return str(value)
+
+    TEMPLATES.env.filters["local"] = local
 
     @asynccontextmanager
     async def db() -> AsyncIterator[aiosqlite.Connection]:
@@ -328,6 +345,49 @@ def create_app(
         finally:
             await modes.close()
         return RedirectResponse(f"/?msg={quote(reply or 'Not a command.')}", status_code=303)
+
+    # ------------------------------------------------------------------ WhatsApp pairing
+
+    def sidecar() -> Sidecar:
+        if settings is None:
+            raise HTTPException(status_code=404, detail="pairing is not available here")
+        return Sidecar(settings.root, settings.data_dir, settings.app.network.sidecar_port)
+
+    @app.get("/pair", response_class=HTMLResponse)
+    async def pair_page(request: Request) -> HTMLResponse:
+        sc = sidecar()
+        proc = app.state.pairing
+        running = proc is not None and proc.returncode is None
+        state = read_pair_state(sc.pair_file) if (running or proc is not None) else None
+        qr = None
+        if state and state.get("state") == "qr" and running:
+            try:
+                qr = Markup(qr_svg(state.get("modules") or []))
+            except ValueError:
+                qr = None
+        return page(
+            request,
+            "pair.html",
+            paired=sc.is_paired(),
+            running=running,
+            qr=qr,
+            state=state,
+            mode=await mode_text(),
+        )
+
+    @app.post("/pair")
+    async def pair_start(token: str = Form(...)) -> RedirectResponse:
+        check_token(token)
+        sc = sidecar()
+        proc = app.state.pairing
+        if sc.is_paired():
+            return RedirectResponse("/pair?msg=" + quote("WhatsApp is already paired."), 303)
+        if proc is None or proc.returncode is not None:
+            try:
+                app.state.pairing = await sc.start_pairing()
+            except SidecarSetupError as exc:
+                return RedirectResponse("/pair?msg=" + quote(str(exc)), 303)
+        return RedirectResponse("/pair", 303)
 
     # ------------------------------------------------------------------ skills (M8)
 

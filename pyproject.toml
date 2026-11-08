@@ -1,6 +1,6 @@
 [project]
 name = "flins"
-version = "0.9.0"
+version = "0.9.1"
 description = "FLINS: local-first personal voice + WhatsApp assistant"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -29,6 +29,7 @@ voice = [
     "faster-whisper>=1.0",
     "pyttsx3>=2.90",
     "pynput>=1.7",
+    "piper-tts>=1.3",
 ]
 
 [project.scripts]
@@ -68,7 +69,7 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 # Voice libraries ship without type information.
-module = ["sounddevice", "pynput", "pynput.*", "pyttsx3", "faster_whisper", "ctranslate2", "numpy", "numpy.*"]
+module = ["sounddevice", "pynput", "pynput.*", "pyttsx3", "faster_whisper", "ctranslate2", "numpy", "numpy.*", "piper", "piper.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

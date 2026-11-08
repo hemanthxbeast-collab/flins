@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 import aiosqlite
 
@@ -11,7 +12,7 @@ from flins.settings import Settings
 from flins.voice.audio import MicRecorder
 from flins.voice.loop import VoiceLoop, _Router
 from flins.voice.stt import PRESETS, WhisperSTT
-from flins.voice.tts import TTS, PrintTTS, SapiTTS
+from flins.voice.tts import TTS, PiperTTS, PrintTTS, SapiTTS
 
 INSTALL_HINT = "Voice isn't installed. Run: uv sync --extra voice"
 
@@ -29,10 +30,21 @@ def check_installed() -> None:
         raise VoiceUnavailable(f"{INSTALL_HINT} ({exc.name} missing)") from exc
 
 
+def piper_model(settings: Settings) -> Path:
+    return settings.data_dir / "voices" / f"{settings.app.voice.piper_voice}.onnx"
+
+
 def make_tts(settings: Settings) -> TTS:
     v = settings.app.voice
     if v.tts == "print":
         return PrintTTS()
+    if v.tts == "piper":
+        model = piper_model(settings)
+        if not model.is_file():
+            raise VoiceUnavailable(
+                f"Piper voice {v.piper_voice!r} isn't downloaded. Run: uv run flins voice download"
+            )
+        return PiperTTS(model, speed=v.piper_speed)
     return SapiTTS(rate=v.tts_rate, voice=v.tts_voice)
 
 

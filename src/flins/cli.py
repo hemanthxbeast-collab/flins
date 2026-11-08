@@ -646,6 +646,32 @@ async def _start_wake_word(settings: Settings, loop: Any) -> None:
     print('Wake word on: say "FLINS", then your command (or "FLINS, status" in one go).')
 
 
+def _piper_download(settings: Settings, name: str) -> int:
+    """Fetch a Piper voice (about 60 MB) from Piper's official voice collection."""
+    try:
+        from piper.download_voices import download_voice, list_voices
+    except ImportError:
+        print("Piper isn't installed. Run: uv sync --extra voice")
+        return 1
+    if name.strip() == "--list":
+        list_voices()
+        return 0
+    voice = name.strip() or settings.app.voice.piper_voice
+    folder = settings.data_dir / "voices"
+    folder.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading Piper voice {voice} into {folder} ...")
+    try:
+        download_voice(voice, folder)
+    except Exception as exc:
+        print(f"Download failed: {exc}")
+        return 1
+    print(
+        f"Done. To use it, set in config/flins.yaml under voice: tts: piper and "
+        f"piper_voice: {voice}. Try it: uv run flins voice say hello"
+    )
+    return 0
+
+
 async def _voice_command(settings: Settings, action: str, text: str) -> int:
     from flins.voice.factory import VoiceUnavailable, check_installed, make_stt, make_tts
     from flins.voice.tts import speakable
@@ -655,7 +681,13 @@ async def _voice_command(settings: Settings, action: str, text: str) -> int:
     except VoiceUnavailable as exc:
         print(exc)
         return 1
-    tts = make_tts(settings)
+    if action == "download":
+        return _piper_download(settings, text)
+    try:
+        tts = make_tts(settings)
+    except VoiceUnavailable as exc:
+        print(exc)
+        return 1
     if action == "voices":
         from flins.voice.tts import SapiTTS
 
@@ -1004,8 +1036,10 @@ def build_parser() -> argparse.ArgumentParser:
     tail = wa_sub.add_parser("tail", help="store and show incoming messages live (read-only)")
     tail.add_argument("--no-spawn", action="store_true", help="don't start the sidecar")
     sub.add_parser("dashboard", help="open the local dashboard without running FLINS")
-    vo = sub.add_parser("voice", help="voice: test (mic + speech model), say <text>, voices")
-    vo.add_argument("action", choices=["test", "say", "voices"])
+    vo = sub.add_parser(
+        "voice", help="voice: test, say <text>, voices, download [piper voice | --list]"
+    )
+    vo.add_argument("action", choices=["test", "say", "voices", "download"])
     vo.add_argument("text", nargs="*")
     ev = sub.add_parser("eval", help="run the WhatsApp safety eval (recorded LLM answers)")
     ev.add_argument("--live", action="store_true", help="use the real AI models (costs money)")

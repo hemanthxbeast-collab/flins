@@ -3,11 +3,11 @@
 <p><a href="/">← Inbox</a></p>
 <div class="card">
   <h2 style="margin-top:0">Decision #{{ d.id }}: <span class="lvl-{{ d.action }}">{{ level }}</span></h2>
-  <p class="muted">{{ d.created_at }} · mode {{ d.mode }} · tier {{ d.contact_tier }} · category {{ d.category }}
+  <p class="muted">{{ d.created_at|local('%d %b %Y, %H:%M') }} · mode {{ d.mode }} · tier {{ d.contact_tier }} · category {{ d.category }}
     {% if d.escalate %}· <span class="urgent">URGENT</span>{% endif %}</p>
 
   <h3>Messages</h3>
-  {% for m in msgs %}<div>{{ m.ts[11:19] }} {% if m.type != "text" %}[{{ m.type }}]{% endif %} {{ m.text or "" }}</div>{% endfor %}
+  {% for m in msgs %}<div>{{ m.ts|local('%H:%M:%S') }} {% if m.type != "text" %}[{{ m.type }}]{% endif %} {{ m.text or "" }}</div>{% endfor %}
 
   <h3>Why this level</h3>
   <p class="muted">The final level is the lowest of these limits.</p>

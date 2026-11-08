@@ -71,7 +71,10 @@ class VoiceConfig(_Strict):
     # "en" (default) stops short clips being mistaken for German or Dutch. Use "hi"/"te" if you
     # speak commands in Hindi/Telugu script, or null to detect each time.
     language: str | None = "en"
-    tts: Literal["sapi", "print"] = "sapi"  # sapi = Windows voices; print = text only
+    tts: Literal["sapi", "piper", "print"] = "sapi"  # sapi = Windows voices; piper = more
+    # natural (run `flins voice download` once); print = text only
+    piper_voice: str = "en_US-lessac-medium"  # see `flins voice download --list`
+    piper_speed: float = Field(default=1.0, ge=0.5, le=2.0)
     tts_voice: str | None = None  # part of a Windows voice name, e.g. "Zira" or "Heera"
     tts_rate: int = Field(default=185, ge=80, le=400)
     speak_alerts: bool = True  # say urgent alerts, expiry warnings and the summary out loud

@@ -10,7 +10,7 @@
     <b>{{ w.name }}</b>
     {% if w.review %}<span class="chip">{{ w.review.status }}</span>{% endif %}
     {% if not w.current %}<span class="chip">changed since it was submitted</span>{% endif %}
-    <span class="muted">· submitted {{ w.submitted_at[:16] }}</span>
+    <span class="muted">· submitted {{ w.submitted_at|local('%d %b %H:%M') }}</span>
     <div class="muted" style="margin:6px 0">Hermes says: {{ w.summary }}</div>
     {% if w.review and w.review.note %}<div class="muted">Your note: {{ w.review.note }}</div>{% endif %}
     <a href="/skills/review/{{ w.name }}">Review →</a>

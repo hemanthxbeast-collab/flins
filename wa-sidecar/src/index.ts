@@ -1,6 +1,7 @@
 // flins-wa: WhatsApp linked-device sidecar for FLINS. READ-ONLY in M1: it has no way to send.
 //
 //   node dist/index.js --pair --auth-dir <dir>                 show a QR and pair, then exit
+//   node dist/index.js --pair --auth-dir <dir> --qr-file <f>   same, QR also as JSON for the dashboard
 //   node dist/index.js --port 8766 --auth-dir <dir>            run (needs FLINS_WA_SECRET)
 
 import { existsSync, readFileSync, renameSync } from 'node:fs'
@@ -20,6 +21,7 @@ import pino from 'pino'
 import qrcode from 'qrcode-terminal'
 import { type ContactInfo, shouldIgnoreJid, toContactInfo, toInbound } from './mapping.js'
 import { MIN_SECRET_LENGTH } from './protocol.js'
+import { qrMatrix, writePairState } from './qr.js'
 import { CoreServer } from './server.js'
 
 const SIDECAR_VERSION = '0.1.0'
@@ -30,15 +32,17 @@ interface Args {
 	pair: boolean
 	port: number
 	authDir: string
+	qrFile: string | null
 }
 
 function parseArgs(argv: string[]): Args {
-	const args: Args = { pair: false, port: 8766, authDir: 'data/wa-auth' }
+	const args: Args = { pair: false, port: 8766, authDir: 'data/wa-auth', qrFile: null }
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
 		if (a === '--pair') args.pair = true
 		else if (a === '--port') args.port = Number(argv[++i])
 		else if (a === '--auth-dir') args.authDir = String(argv[++i])
+		else if (a === '--qr-file') args.qrFile = String(argv[++i])
 		else throw new Error(`unknown argument ${a}`)
 	}
 	if (!Number.isInteger(args.port) || args.port < 1024 || args.port > 65535) {
@@ -102,9 +106,13 @@ async function openSocket(authDir: string): Promise<{ sock: WASocket; saveCreds:
 
 // ---------------------------------------------------------------- pairing mode
 
-async function runPair(authDir: string): Promise<number> {
+async function runPair(authDir: string, qrFile: string | null): Promise<number> {
+	const state = (s: Parameters<typeof writePairState>[1]): void => {
+		if (qrFile) writePairState(qrFile, s)
+	}
 	if (isPaired(authDir)) {
 		log(`already paired (auth in ${authDir}). Use "flins wa pair --force" to re-pair.`)
+		state({ state: 'paired', name: '' })
 		return 0
 	}
 	return new Promise(resolve => {
@@ -114,9 +122,11 @@ async function runPair(authDir: string): Promise<number> {
 				if (update.qr) {
 					log('Scan this QR with WhatsApp > Linked devices > Link a device:')
 					qrcode.generate(update.qr, { small: true })
+					state({ state: 'qr', modules: qrMatrix(update.qr) })
 				}
 				if (update.connection === 'open') {
 					log(`Paired as ${sock.user?.name ?? ''} (${sock.user?.id ?? '?'})`)
+					state({ state: 'paired', name: sock.user?.name ?? '' })
 					// Give Baileys a moment to finish writing credentials.
 					setTimeout(() => {
 						sock.end(undefined)
@@ -129,9 +139,11 @@ async function runPair(authDir: string): Promise<number> {
 						void attempt() // normal right after scanning
 					} else if (code === DisconnectReason.timedOut) {
 						log('QR expired. Run the pair command again.')
+						state({ state: 'failed', reason: 'The QR expired before it was scanned.' })
 						resolve(1)
 					} else if (!isPaired(authDir)) {
 						log(`pairing failed (code ${code ?? '?'})`)
+						state({ state: 'failed', reason: `Pairing failed (code ${code ?? '?'}).` })
 						resolve(1)
 					}
 				}
@@ -322,7 +334,7 @@ async function runServe(args: Args): Promise<void> {
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2))
 	if (args.pair) {
-		process.exit(await runPair(args.authDir))
+		process.exit(await runPair(args.authDir, args.qrFile))
 	}
 	await runServe(args)
 }

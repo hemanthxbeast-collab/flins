@@ -28,7 +28,7 @@
   <div class="row">
     <b>{{ r.who }}</b>{% if r.is_group %}<span class="chip">group</span>{% endif %}
     <span class="chip">{{ r.contact_tier }}</span>
-    <span class="muted">{{ r.created_at[11:16] }} UTC · {{ r.mode|lower }}</span>
+    <span class="muted">{{ r.created_at|local('%d %b %H:%M') }} · {{ r.mode|lower }}</span>
     <span style="flex:1"></span>
     {% if r.escalate %}<span class="urgent">URGENT</span>{% endif %}
     <span class="lvl-{{ r.action }}">{{ r.words }}</span>
