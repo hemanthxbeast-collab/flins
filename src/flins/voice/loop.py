@@ -49,18 +49,45 @@ class VoiceLoop:
         self._signature = signature
         self._announce = announce
         self._beep = beep_fn
-        self._busy = False
+        self._in_turn = False
+        self._speaking = False
+        self.quiet_since = 0.0  # time.monotonic() when FLINS last stopped talking
         self._cancel = asyncio.Event()
         self.turns: list[Turn] = []
 
+    @property
+    def busy(self) -> bool:
+        """Listening for a command or talking: the wake word ignores the mic meanwhile."""
+        return self._in_turn or self._speaking
+
     async def say(self, text: str) -> None:
         """Speak anything (alerts, summaries). Never raises: speech must not break FLINS."""
+        self._speaking = True
         try:
             await self._tts.say(speakable(text, signature=self._signature))
         except Exception as exc:  # pragma: no cover - depends on the sound system
             self._announce(f"-- voice output failed: {type(exc).__name__}: {exc}")
+        finally:
+            self._speaking = False
+            self.quiet_since = time.monotonic()
 
     async def turn(self) -> Turn | None:
+        self._in_turn = True
+        try:
+            return await self._turn()
+        finally:
+            self._in_turn = False
+
+    async def command(self, heard: str, speech_end: float) -> Turn:
+        """A command already heard (the wake word with words after it: "FLINS, status")."""
+        self._in_turn = True
+        try:
+            self._announce(f"   YOU (voice): {heard}")
+            return await self._respond(heard, 0.0, speech_end)
+        finally:
+            self._in_turn = False
+
+    async def _turn(self) -> Turn | None:
         self._cancel.clear()
         await asyncio.get_running_loop().run_in_executor(None, self._beep)
         rec = await self._recorder.record(self._cancel)
@@ -81,14 +108,17 @@ class VoiceLoop:
             await self.say(NOT_UNDERSTOOD)
             return None
         self._announce(f"   YOU (voice): {heard}")
+        return await self._respond(heard, transcript.seconds, rec.speech_end)
+
+    async def _respond(self, heard: str, stt_s: float, speech_end: float) -> Turn:
         think_started = time.monotonic()
         reply = await self._router.handle_text(heard, source="voice") or NOT_UNDERSTOOD
         if reply.startswith(("Sorry", "I couldn't find")):
             reply = f'I heard "{heard}". {reply}'  # so you can tell what went wrong
         think = time.monotonic() - think_started
         self._announce(f"   FLINS: {reply}")
-        latency = time.monotonic() - rec.speech_end
-        result = Turn(heard, reply, transcript.seconds, think, latency)
+        latency = time.monotonic() - speech_end
+        result = Turn(heard, reply, stt_s, think, latency)
         self.turns.append(result)
         await self.say(reply)
         return result

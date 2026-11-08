@@ -22,6 +22,7 @@ from fastapi.templating import Jinja2Templates
 
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
+from flins.core.autonomy import auto_stats, set_optin
 from flins.core.clock import Clock, SystemClock, to_iso
 from flins.core.commands import CommandRouter
 from flins.core.db import connect
@@ -225,6 +226,12 @@ def create_app(
                 args,
             ) as cur:
                 rows = [dict(r) for r in await cur.fetchall()]
+            for r in rows:
+                tier_pol = policy.tiers.get(r["tier"])
+                r["tier_allows_auto"] = bool(tier_pol and tier_pol.ceiling >= Level.AUTO)
+                r["auto"] = None
+                if r["tier"] not in ("unknown", "blocked"):
+                    r["auto"] = (await auto_stats(conn, r["id"])).describe(policy)
             async with conn.execute("SELECT tier, COUNT(*) FROM contacts GROUP BY tier") as cur:
                 counts = {r[0]: r[1] for r in await cur.fetchall()}
             async with conn.execute(
@@ -277,6 +284,22 @@ def create_app(
                     "contact.tier_changed",
                     {"contact_id": contact_id, "from": row[0], "to": tier},
                 )
+        target = back if back.startswith("/contacts") else "/contacts"
+        return RedirectResponse(target, status_code=303)
+
+    @app.post("/contacts/{contact_id}/auto")
+    async def set_auto(
+        contact_id: int, on: str = Form(...), token: str = Form(...), back: str = Form("")
+    ) -> RedirectResponse:
+        check_token(token)
+        async with db() as conn:
+            async with conn.execute("SELECT tier FROM contacts WHERE id = ?", (contact_id,)) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="no such contact")
+            if row["tier"] in ("unknown", "blocked") and on == "1":
+                raise HTTPException(status_code=400, detail="unknown or blocked contacts can't")
+            await set_optin(conn, contact_id, on == "1", "dashboard")
         target = back if back.startswith("/contacts") else "/contacts"
         return RedirectResponse(target, status_code=303)
 

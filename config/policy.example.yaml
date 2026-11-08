@@ -5,7 +5,12 @@
 
 version: 1
 dry_run: true                 # shadow mode: never actually send. Turn off at M4.
-auto_replies: holding_only    # send holding-reply templates automatically in busy modes (or: off)
+auto_replies: holding_only    # send holding-reply templates automatically in busy modes (or: off).
+                              # unlocked = also AI replies, unreviewed, to contacts you opted in
+                              # (flins contacts auto <name> on) once they've earned it:
+auto_unlock:                  # stricter only: lower than 20 / higher than 10% is clamped
+  min_approved: 20            # AI drafts you approved for that contact
+  max_edit_rate: 0.10         # share of those you edited or rejected
 self_chat_notes: true        # FLINS answers, approval prompts and urgent alerts in your self-chat
 
 user:

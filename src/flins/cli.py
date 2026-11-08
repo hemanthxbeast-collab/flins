@@ -29,6 +29,7 @@ from flins.core.db import connect, migrate, table_names
 from flins.core.events import Event, EventBus
 from flins.core.ingest import ContactsResult, Ingestor, StoredMessage
 from flins.core.intents import IntentParser
+from flins.core.levels import Level
 from flins.core.modes import ModeManager
 from flins.core.outbox import OutboxWorker
 from flins.core.pipeline import Pipeline
@@ -337,6 +338,7 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
     code = 0
     modes: ModeManager | None = None
     ticker: asyncio.Task[None] | None = None
+    backups_task: asyncio.Task[None] | None = None
     dashboard: uvicorn.Server | None = None
     dashboard_task: asyncio.Task[None] | None = None
     voice_task: asyncio.Task[None] | None = None
@@ -405,11 +407,12 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
             if settings.policy.dry_run
             else (
                 "SENDING IS ON: drafts you approve are sent"
-                + (
-                    ", and holding replies go out automatically in busy modes."
-                    if settings.policy.auto_replies == "holding_only"
-                    else ". Automatic replies are off."
-                )
+                + {
+                    "holding_only": ", and holding replies go out automatically in busy modes.",
+                    "unlocked": ", holding replies go out automatically, and AI replies go out "
+                    "unreviewed to contacts who earned it (flins contacts).",
+                    "off": ". Automatic replies are off.",
+                }[settings.policy.auto_replies]
             )
         )
         print("Ctrl+C to stop.")
@@ -432,6 +435,7 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
                 await asyncio.sleep(1)
 
         ticker = asyncio.create_task(tick_forever())
+        backups_task = asyncio.create_task(_daily_backups(settings))
         if voice_loop is not None and hotkey is not None:
             voice_task = asyncio.create_task(voice_loop.run(hotkey.presses))
     else:
@@ -459,8 +463,14 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
     finally:
         if ticker is not None:
             ticker.cancel()
+        if backups_task is not None:
+            backups_task.cancel()
         if voice_task is not None:
             voice_task.cancel()
+        wake_parts = getattr(voice_loop, "wake_parts", None) if brain else None
+        if wake_parts is not None:
+            wake_parts[0].stop()
+            wake_parts[1].cancel()
         if hotkey is not None:
             hotkey.stop()
         if dashboard is not None:
@@ -601,6 +611,8 @@ async def _start_voice(
     hotkey = Hotkey(v.hotkey)
     hotkey.start()
     print(f"Voice ready: press {v.hotkey.replace('<', '').replace('>', '').title()} and speak.")
+    if v.wake_word:
+        await _start_wake_word(settings, loop)
 
     if v.speak_alerts:
 
@@ -615,6 +627,23 @@ async def _start_voice(
         bus.subscribe("decision.made", on_decision)
         bus.subscribe("mode.expiring", on_expiring)
     return loop, hotkey
+
+
+async def _start_wake_word(settings: Settings, loop: Any) -> None:
+    """Say "FLINS" instead of pressing the hotkey. Runs until FLINS stops."""
+    from flins.voice.stt import WhisperSTT
+    from flins.voice.wake import MicBursts, WakeWord
+
+    v = settings.app.voice
+    stt = WhisperSTT(v.wake_model, device=v.stt_device, language=v.language or "en", beam_size=1)
+    print(f"Wake word: loading '{v.wake_model}' model...")
+    await asyncio.get_running_loop().run_in_executor(None, stt.load)
+    mic = MicBursts()
+    mic.start()
+    wake = WakeWord(mic, stt, loop)
+    task = asyncio.create_task(wake.run())
+    loop.wake_parts = (mic, task)  # stopped with the voice loop
+    print('Wake word on: say "FLINS", then your command (or "FLINS, status" in one go).')
 
 
 async def _voice_command(settings: Settings, action: str, text: str) -> int:
@@ -764,6 +793,178 @@ def cmd_skills(root: Path | None, action: str, name: str | None) -> int:
     return asyncio.run(_skills(settings, action, name))
 
 
+def cmd_autostart(root: Path | None, action: str, voice: bool) -> int:
+    from flins import autostart
+
+    if platform.system() != "Windows":
+        print("Autostart is for Windows (Task Scheduler).")
+        return 1
+    if action == "status":
+        print(f"Autostart: {autostart.status().text()}")
+        return 0
+    if action == "off":
+        print(autostart.disable())
+        return 0
+    try:
+        project = root or find_root()
+    except FileNotFoundError as exc:
+        print(exc)
+        return 1
+    print(autostart.enable(project, voice))
+    print("It runs: " + autostart.launch_line(project, voice))
+    return 0
+
+
+PASSPHRASE_HINT = (
+    "Set FLINS_BACKUP_PASSPHRASE in .env (at least 12 characters, e.g. four random words) and "
+    "keep a copy in your password manager: without it a backup can't be opened."
+)
+
+
+def cmd_backup(root: Path | None, action: str, file: Path | None, to: Path | None) -> int:
+    from flins import backup
+
+    settings = _load(root)
+    if settings is None:
+        return 1
+    folder = to.resolve() if to and action != "restore" else settings.backup_dir
+    if action == "list":
+        files = sorted(folder.glob(f"flins-*{backup.SUFFIX}")) if folder.is_dir() else []
+        for f in files:
+            print(f"  {f.name}  {f.stat().st_size / 1024:.0f} KB")
+        print(f"{len(files)} backup(s) in {folder}")
+        return 0
+    passphrase = settings.env_value("FLINS_BACKUP_PASSPHRASE")
+    if not passphrase:
+        print(PASSPHRASE_HINT)
+        return 1
+    try:
+        if action == "restore":
+            if file is None:
+                print("Which file? flins backup restore <file> [--to <new folder>]")
+                return 2
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            dest = (to or settings.data_dir / f"restore-{stamp}").resolve()
+            names = backup.restore_backup(file, passphrase, dest)
+            print(f"Restored {len(names)} files into {dest} (your live files weren't touched).")
+            print("To use it: stop FLINS, then copy flins.db into data/ and the config files back.")
+            return 0
+        result = backup.create_backup(
+            settings.root,
+            settings.db_path,
+            folder,
+            passphrase,
+            datetime.now(),
+            keep=settings.app.backup.keep,
+        )
+    except backup.BackupError as exc:
+        print(f"Backup: {exc}")
+        return 1
+    print(
+        f"Saved {result.path} ({result.size / 1024:.0f} KB, encrypted): {', '.join(result.files)}"
+    )
+    if result.removed:
+        print(f"Removed {len(result.removed)} older backup(s), keeping {settings.app.backup.keep}.")
+    if folder.is_relative_to(settings.data_dir):
+        print("Tip: backups on the same disk don't survive a disk failure. Use --to or backup.dir.")
+    return 0
+
+
+async def _daily_backups(settings: Settings) -> None:
+    """While FLINS runs: one encrypted backup a day, if you set a passphrase."""
+    from flins import backup
+
+    if not settings.app.backup.daily:
+        return
+    while True:
+        passphrase = settings.env_value("FLINS_BACKUP_PASSPHRASE")
+        newest = backup.latest(settings.backup_dir)
+        due = newest is None or (datetime.now().timestamp() - newest.stat().st_mtime > 24 * 3600)
+        if passphrase and due:
+            try:
+                result = await asyncio.to_thread(
+                    backup.create_backup,
+                    settings.root,
+                    settings.db_path,
+                    settings.backup_dir,
+                    passphrase,
+                    datetime.now(),
+                    keep=settings.app.backup.keep,
+                )
+                print(f"-- daily backup saved: {result.path.name}")
+            except Exception as exc:  # never let a backup problem stop FLINS
+                print(f"-- daily backup failed: {exc}")
+        await asyncio.sleep(3600)
+
+
+async def _contacts(settings: Settings, action: str, rest: list[str]) -> int:
+    from flins.core.autonomy import auto_stats, set_optin
+    from flins.core.intents import find_contacts
+
+    policy = settings.policy
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    try:
+        if action == "list":
+            async with conn.execute(
+                "SELECT id, COALESCE(display_name, '~' || push_name, wa_jid) AS name, tier, "
+                "auto_optin FROM contacts WHERE auto_optin = 1 OR tier IN ('inner', 'trusted') "
+                "ORDER BY auto_optin DESC, tier, name"
+            ) as cur:
+                rows = list(await cur.fetchall())
+            print(f"Unreviewed AI replies: auto_replies = {policy.auto_replies}")
+            if policy.auto_replies != "unlocked":
+                print("  (set auto_replies: unlocked in config/policy.yaml to use earned replies)")
+            for r in rows:
+                stats = await auto_stats(conn, r["id"])
+                print(f"  {r['name']:<28} {r['tier']:<8} {stats.describe(policy)}")
+            if not rows:
+                print(
+                    "  No inner/trusted contacts yet. Set tiers on the dashboard's Contacts page."
+                )
+            return 0
+        if len(rest) < 2 or rest[-1].lower() not in ("on", "off"):
+            print('Usage: flins contacts auto "<name>" on|off')
+            return 2
+        on = rest[-1].lower() == "on"
+        spoken = " ".join(rest[:-1])
+        matches = await find_contacts(conn, spoken)
+        if not matches:
+            print(f"No contact matches {spoken!r}.")
+            return 1
+        if len(matches) > 1:
+            print("Which one? " + ", ".join(m.name for m in matches[:6]))
+            return 1
+        async with conn.execute(
+            "SELECT id, tier FROM contacts WHERE wa_jid = ? OR wa_lid = ?",
+            (matches[0].jid, matches[0].jid),
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        if on and row["tier"] in ("unknown", "blocked"):
+            print(f"{matches[0].name} is {row['tier']}: give them a tier first.")
+            return 1
+        await set_optin(conn, row["id"], on, "cli")
+        stats = await auto_stats(conn, row["id"])
+        print(f"{matches[0].name}: {stats.describe(policy)}")
+        tier_pol = policy.tiers.get(row["tier"])
+        if on and (tier_pol is None or tier_pol.ceiling < Level.AUTO):
+            print(
+                f"Note: tier {row['tier']} is capped below AUTO in policy.yaml, so they'll keep "
+                "getting holding replies or drafts until you move them to a tier that allows AUTO."
+            )
+        return 0
+    finally:
+        await conn.close()
+
+
+def cmd_contacts(root: Path | None, action: str, rest: list[str]) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_contacts(settings, action, rest))
+
+
 def cmd_skilldev(root: Path | None, incoming: Path | None) -> int:
     """stdout belongs to the MCP protocol: never print here. It reads no personal config."""
     from flins.skilldev.server import serve_stdio
@@ -821,6 +1022,20 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["list", "validate", "test", "enable", "disable"],
     )
     sk.add_argument("name", nargs="?", default=None)
+    au = sub.add_parser(
+        "autostart", help="start FLINS when you log in: on [--voice] | off | status"
+    )
+    au.add_argument("action", nargs="?", default="status", choices=["on", "off", "status"])
+    au.add_argument("--voice", action="store_true", help="start with push-to-talk/wake word")
+    bk = sub.add_parser("backup", help="encrypted backup: create (default), list, restore <file>")
+    bk.add_argument("action", nargs="?", default="create", choices=["create", "list", "restore"])
+    bk.add_argument("file", nargs="?", type=Path, default=None)
+    bk.add_argument("--to", type=Path, default=None, help="backup folder, or restore folder")
+    ct = sub.add_parser(
+        "contacts", help="earned auto replies: show progress, or: auto <name> on|off"
+    )
+    ct.add_argument("action", nargs="?", default="list", choices=["list", "auto"])
+    ct.add_argument("rest", nargs="*", help="for auto: <name...> on|off")
     dev = sub.add_parser(
         "skilldev", help="MCP server (stdio) for Hermes to build skills in skills/_incoming"
     )
@@ -868,6 +1083,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_llm(root, args.action, args.provider)
     if args.command == "skills":
         return cmd_skills(root, args.action, args.name)
+    if args.command == "autostart":
+        return cmd_autostart(root, args.action, args.voice)
+    if args.command == "backup":
+        return cmd_backup(root, args.action, args.file, args.to)
+    if args.command == "contacts":
+        return cmd_contacts(root, args.action, args.rest)
     if args.command == "skilldev":
         return cmd_skilldev(root, args.incoming)
     return _stub(args.command)

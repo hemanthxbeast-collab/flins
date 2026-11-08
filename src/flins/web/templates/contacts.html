@@ -23,7 +23,7 @@
 {% endif %}
 
 <table>
-  <tr><th>Name</th><th>WhatsApp</th><th>Tier</th></tr>
+  <tr><th>Name</th><th>WhatsApp</th><th>Tier</th><th>Unreviewed AI replies</th></tr>
   {% for c in rows %}
   <tr>
     <td>{% if c.display_name %}{{ c.display_name }}{% if c.push_name and c.push_name != c.display_name %}<div class="muted" style="font-size:12.5px">calls themselves "{{ c.push_name }}"</div>{% endif %}
@@ -36,6 +36,18 @@
         <select name="tier">{% for t in tiers %}<option value="{{ t }}" {% if t == c.tier %}selected{% endif %}>{{ t }}</option>{% endfor %}</select>
         <button>Save</button>
       </form>
+    </td>
+    <td style="font-size:13px">
+      {% if c.auto is not none %}
+        <div class="muted">{{ c.auto }}</div>
+        {% if c.auto_optin and not c.tier_allows_auto %}<div class="muted">This tier never goes above {{ "holding replies" if c.tier == "inner" else "drafts" }}; it needs a tier that allows AUTO.</div>{% endif %}
+        <form class="inline" method="post" action="/contacts/{{ c.id }}/auto">
+          <input type="hidden" name="token" value="{{ token }}">
+          <input type="hidden" name="back" value="/contacts?q={{ q|urlencode }}&tier={{ tier|urlencode }}">
+          {% if c.auto_optin %}<button name="on" value="0">Turn off</button>
+          {% else %}<button name="on" value="1">Let them earn it</button>{% endif %}
+        </form>
+      {% else %}<span class="muted">—</span>{% endif %}
     </td>
   </tr>
   {% endfor %}

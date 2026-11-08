@@ -166,6 +166,17 @@ class Approvals(_Strict):
     )
 
 
+# SPEC §14 M9: a contact earns unreviewed AI replies only after this many approved drafts with
+# at most this share edited or rejected. policy.yaml may be stricter, never looser.
+MIN_APPROVED_FLOOR = 20
+MAX_EDIT_RATE_CEILING = 0.10
+
+
+class AutoUnlock(_Strict):
+    min_approved: int = Field(default=MIN_APPROVED_FLOOR, ge=1)
+    max_edit_rate: float = Field(default=MAX_EDIT_RATE_CEILING, ge=0, le=1)
+
+
 class Retention(_Strict):
     messages_days: int = Field(default=30, gt=0)
     audit_days: int = Field(default=180, gt=0)
@@ -175,7 +186,9 @@ class Policy(_Strict):
     version: Literal[1]
     dry_run: bool = True
     # M5: send your holding-reply templates automatically in busy modes ("off" = never).
-    auto_replies: Literal["holding_only", "off"] = "holding_only"
+    # M9 "unlocked": also send AI replies unreviewed to contacts you opted in who earned it.
+    auto_replies: Literal["holding_only", "unlocked", "off"] = "holding_only"
+    auto_unlock: AutoUnlock = Field(default_factory=AutoUnlock)
     # M5: FLINS writes command answers, approval prompts and urgent alerts to your self-chat.
     self_chat_notes: bool = True
     user: UserInfo
@@ -239,6 +252,19 @@ class Policy(_Strict):
             elif cap > Level.NOTIFY:
                 warn.append(f"sensitivity cap {flag} {cap.name} clamped to NOTIFY")
                 self.sensitivity_caps[flag] = Level.NOTIFY
+
+        au = self.auto_unlock
+        if au.min_approved < MIN_APPROVED_FLOOR:
+            warn.append(
+                f"auto_unlock.min_approved {au.min_approved} raised to {MIN_APPROVED_FLOOR}"
+            )
+            au.min_approved = MIN_APPROVED_FLOOR
+        if au.max_edit_rate > MAX_EDIT_RATE_CEILING:
+            warn.append(
+                f"auto_unlock.max_edit_rate {au.max_edit_rate:g} lowered to "
+                f"{MAX_EDIT_RATE_CEILING:g}"
+            )
+            au.max_edit_rate = MAX_EDIT_RATE_CEILING
 
         referenced = [
             (f"modes.{m}.holding_template", p.holding_template) for m, p in self.modes.items()

@@ -457,11 +457,12 @@ wheels = [
 
 [[package]]
 name = "flins"
-version = "0.8.0"
+version = "0.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "anthropic" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jinja2" },
@@ -497,6 +498,7 @@ dev = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "anthropic", specifier = ">=1.0" },
+    { name = "cryptography", specifier = ">=43" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.0" },
     { name = "httpx", specifier = ">=0.27" },

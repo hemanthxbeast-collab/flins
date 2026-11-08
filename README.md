@@ -179,6 +179,30 @@ approve them on the dashboard's **Skills** page. Setup, with the WSL isolation i
 [docs/HERMES.md](docs/HERMES.md). You can also say "make a skill that …" to FLINS to leave
 Hermes a request.
 
+## Earned auto replies (M9)
+FLINS can send its AI replies without asking you, but only to people you choose, and only after
+it has proven itself with them:
+```powershell
+uv run flins contacts                         # progress for your inner/trusted contacts
+uv run flins contacts auto "Meera" on        # let a contact earn it (off: ... off)
+```
+Then set `auto_replies: unlocked` in `config/policy.yaml`. A contact qualifies after you've
+approved 20 of FLINS's drafts for them with at most 10% edited or rejected. They need a tier
+that allows AUTO (trusted; inner stays at holding replies). Money, OTPs, legal/medical and
+emotional messages always just notify you.
+
+## Backups, autostart, wake word (M9)
+```powershell
+uv run flins backup                 # encrypted backup to data/backups (or --to D:\Backups)
+uv run flins backup restore <file>  # into a new folder; never overwrites anything
+uv run flins autostart on --voice   # start FLINS when you log in (off / status)
+```
+Backups need `FLINS_BACKUP_PASSPHRASE=<at least 12 characters>` in `.env`. Keep a copy in your
+password manager: without it a backup can't be opened. `flins run` makes one a day.
+
+Wake word: set `voice.wake_word: true` in `config/flins.yaml`, then say "FLINS" (or "FLINS,
+status" in one go). It listens locally and saves nothing.
+
 ## Dashboard
 `flins run` serves it at http://127.0.0.1:8765 (or run `uv run flins dashboard` on its own).
 Inbox with every decision and a "why?" page, drafts FLINS would send or is holding back,
@@ -204,5 +228,4 @@ npm --prefix wa-sidecar test
 ```
 
 ## Milestones
-See SPEC §14. Done: **M0**–**M8**. Next: **M9** (automatic free-form replies for chosen contacts
-after enough approved drafts, tone learning, wake word, autostart, backups).
+See SPEC §14. Done: **M0**–**M9**. All planned milestones are built.

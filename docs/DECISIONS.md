@@ -2,6 +2,29 @@
 
 Short records of choices made while building. Newest first.
 
+## M9: earned autonomy, tone, backups, autostart, wake word (2026-11-08)
+- **What counts toward earning auto replies:** only FLINS's AI drafts (not templates or skill
+  replies). "Sent" = approved or edited; the 10% limit counts edits **and rejections** against
+  all drafts you decided on (SPEC said only edits; rejections are a stronger "no", so the
+  cautious reading counts them). Opt-in is per contact and never automatic.
+- **Decisions keep their level.** An AUTO decision for a contact who hasn't earned it still shows
+  AUTO in the trace, with a note "held for your approval: …", and goes to approval as before.
+  Not lowering the level keeps the eval and existing traces unchanged.
+- **No red-flag check, no unreviewed send.** If `drafting.redflag_check` is off or no AI is
+  configured, earned contacts still get drafts for approval.
+- **Inner tier stays at holding replies** (its ceiling in policy). A contact needs a tier
+  whose ceiling allows AUTO (trusted by default) for earned replies; the CLI and dashboard say so.
+- **Backups use `cryptography`** (you approved the dependency): AES-256-GCM, scrypt key from a
+  passphrase, header authenticated, restore only into a new folder with an integrity check and
+  zip-path checks. Chosen over Windows DPAPI so a backup survives a broken Windows install.
+- **Wake word without openwakeword:** it needs `tflite-runtime`, which has no build for
+  Python 3.12+, and has no "FLINS" model. A loudness-gated listener plus local Whisper `tiny`
+  checks bursts for "FLINS" and sound-alikes. Tested with the Windows test voice and `small`:
+  "FLINS, status" and "Hey FLINS, what did I miss?" were heard right. A false wake ("Flints are
+  rocks") only produces "Sorry, I didn't get that"; anything that acts still asks for "yes".
+- **Autostart** creates a logon task as you (`/RL LIMITED`, 30 s delay, minimised window). If
+  Windows refuses, a `FLINS.cmd` in your Startup folder does the same.
+
 ## M8: Hermes and skill review (2026-11-08)
 - **The dashboard token doesn't stop local programs.** Any program that can reach
   127.0.0.1:8765 can read the page, take the token and approve drafts or skills. WSL interop

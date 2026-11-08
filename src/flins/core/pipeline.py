@@ -18,6 +18,7 @@ import aiosqlite
 
 from flins.core.approvals import create_for_draft
 from flins.core.audit import AuditLog
+from flins.core.autonomy import auto_stats
 from flins.core.clock import Clock, from_iso, to_iso
 from flins.core.debounce import Debouncer
 from flins.core.events import Event, EventBus
@@ -317,11 +318,13 @@ class Pipeline:
                 triaged=triage is not None,
             )
         auto = False
-        if (
+        if outcome is not None and outcome.would_send and decision.level == Level.AUTO:
+            decision, auto = await self._earned_auto(decision, contact, outcome, is_group)
+        elif (
             outcome is not None
             and outcome.would_send
             and decision.level == Level.AUTO_SAFE
-            and self._policy.auto_replies == "holding_only"
+            and self._policy.auto_replies in ("holding_only", "unlocked")
         ):
             since = await self._modes.session_started_at()
             if await holding_reply_sent_this_session(self._conn, chat, since):
@@ -335,6 +338,49 @@ class Pipeline:
             msgs, contact, mode.value, tier, decision, triage, llm_triage, outcome, now, auto, runs
         )
         return decision
+
+    async def _edits(self, contact: aiosqlite.Row | None) -> list[tuple[str, str]]:
+        """Tone learning (M9): your latest corrections for this contact, then a few from anyone."""
+        cid = int(contact["id"]) if contact is not None else -1
+        async with self._conn.execute(
+            "SELECT draft, final FROM tone_examples WHERE contact_id = ? ORDER BY id DESC LIMIT 5",
+            (cid,),
+        ) as cur:
+            own = [(str(r[0]), str(r[1])) for r in await cur.fetchall()]
+        async with self._conn.execute(
+            "SELECT draft, final FROM tone_examples WHERE contact_id != ? ORDER BY id DESC LIMIT 3",
+            (cid,),
+        ) as cur:
+            others = [(str(r[0]), str(r[1])) for r in await cur.fetchall()]
+        return own + others
+
+    async def _earned_auto(
+        self,
+        decision: Decision,
+        contact: aiosqlite.Row | None,
+        outcome: DraftOutcome,
+        is_group: bool,
+    ) -> tuple[Decision, bool]:
+        """M9: an AI reply goes out unreviewed only for a contact who earned it. Otherwise it
+        waits for your approval, as before, with a note saying why."""
+        why: str | None = None
+        if self._policy.auto_replies != "unlocked":
+            why = f"auto_replies is {self._policy.auto_replies}"
+        elif contact is None or is_group:
+            why = "not a saved contact"
+        elif outcome.source != "llm":
+            why = "only AI drafts can be earned"
+        elif not self._policy.drafting.redflag_check or self._brain is None:
+            why = "no red-flag check to back an unreviewed send"
+        else:
+            stats = await auto_stats(self._conn, int(contact["id"]))
+            if not stats.unlocked(self._policy):
+                why = f"not earned yet ({stats.describe(self._policy)})"
+        if why is not None:
+            note = f"AUTO held for your approval: {why}"
+            return replace(decision, warnings=[*decision.warnings, note]), False
+        note = "AUTO reply earned by this contact: sending without review"
+        return replace(decision, warnings=[*decision.warnings, note]), True
 
     # ------------------------------------------------------------------ drafting
 
@@ -473,6 +519,7 @@ class Pipeline:
                 contact_card=card,
                 tone=tone,
                 facts=facts,
+                edits=await self._edits(contact),
             )
         except LLMError as exc:
             return decision.with_ceiling("draft", Level.NOTIFY, f"drafting failed: {exc}"), None

@@ -139,6 +139,7 @@ class Drafter:
         contact_card: dict[str, Any],
         tone: dict[str, Any],
         facts: list[str],
+        edits: list[tuple[str, str]] | None = None,
     ) -> DraftOut:
         card = "\n".join(f"{k}: {neutralise(str(v))}" for k, v in contact_card.items() if v)
         tone_text = "\n".join(f"{k}: {v}" for k, v in tone.items())
@@ -148,12 +149,21 @@ class Drafter:
             f"<contact_card>\n{card}\n</contact_card>\n"
             f"<tone_profile>\n{tone_text}\n</tone_profile>\n"
             f"<allowed_facts>\n{facts_text}\n</allowed_facts>\n"
+            f"{edits_block(edits)}"
             f"{conversation}\n"
             "Write the reply to the new messages, or return an empty reply."
         )
         return await self._gw.json(
             prompt=self._prompt, user=user, schema=DRAFT_SCHEMA, out=DraftOut
         )
+
+
+def edits_block(edits: list[tuple[str, str]] | None) -> str:
+    """M9 tone learning: drafts you corrected, and what you sent instead (neutralised)."""
+    if not edits:
+        return ""
+    lines = [f"- draft: {neutralise(d[:300])}\n  sent: {neutralise(f[:300])}" for d, f in edits[:8]]
+    return "<your_edits>\n" + "\n".join(lines) + "\n</your_edits>\n"
 
 
 # ------------------------------------------------------------------ red flag

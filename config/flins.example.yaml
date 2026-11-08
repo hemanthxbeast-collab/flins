@@ -75,3 +75,12 @@ voice:
   tts_voice: null         # e.g. "Zira", "David", "Heera" (see: uv run flins voice voices)
   tts_rate: 185
   speak_alerts: true      # say urgent alerts, expiry warnings and the summary out loud
+  wake_word: false        # true = say "FLINS" instead of the hotkey (mic always listening, locally)
+  wake_model: tiny        # small speech model used only to spot the wake word
+
+# ---------------------------------------------------------------------------------------------
+# Backups (M9). Needs FLINS_BACKUP_PASSPHRASE in .env. `flins backup` any time.
+backup:
+  dir: null               # default data/backups; better a folder on another disk or OneDrive
+  keep: 14
+  daily: true             # flins run makes one a day

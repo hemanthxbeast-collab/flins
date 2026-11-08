@@ -77,6 +77,10 @@ class VoiceConfig(_Strict):
     speak_alerts: bool = True  # say urgent alerts, expiry warnings and the summary out loud
     max_record_s: float = Field(default=12.0, gt=1, le=60)
     silence_s: float = Field(default=0.9, gt=0.2, le=5)
+    # M9: say "FLINS" instead of pressing the hotkey. Listens to the mic all the time (locally,
+    # nothing saved) and runs a small speech model on each burst of speech.
+    wake_word: bool = False
+    wake_model: str = "tiny"
 
 
 class SkillsConfig(_Strict):
@@ -86,6 +90,12 @@ class SkillsConfig(_Strict):
     faq_file: Path = Path("config/faq.yaml")
 
 
+class BackupConfig(_Strict):
+    dir: Path | None = None  # default data/backups; better: a folder on another disk or OneDrive
+    keep: int = Field(default=14, ge=1, le=365)
+    daily: bool = True  # `flins run` makes one a day when FLINS_BACKUP_PASSPHRASE is set
+
+
 class AppConfig(_Strict):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
@@ -93,6 +103,7 @@ class AppConfig(_Strict):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    backup: BackupConfig = Field(default_factory=BackupConfig)
 
 
 class ToneProfile(_Strict):
@@ -204,6 +215,11 @@ class Settings:
     @property
     def skills_dir(self) -> Path:
         return self.path(self.app.skills.dir)
+
+    @property
+    def backup_dir(self) -> Path:
+        d = self.app.backup.dir
+        return self.path(d) if d is not None else self.data_dir / "backups"
 
     @property
     def skill_runs_dir(self) -> Path:

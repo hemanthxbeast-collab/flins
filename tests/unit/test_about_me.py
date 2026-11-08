@@ -66,8 +66,8 @@ def test_default_share_with_is_trusted() -> None:
 
 
 def test_newest_prompt_version_is_used(tmp_path: Path) -> None:
-    assert latest_name(PROMPTS, "draft") == "draft_v2"
-    assert load_prompt(PROMPTS, "draft").version == "draft_v2"
+    assert latest_name(PROMPTS, "draft") == "draft_v3"
+    assert load_prompt(PROMPTS, "draft").version == "draft_v3"
     assert load_prompt(PROMPTS, "draft_v1").version == "draft_v1"  # old one still loadable
     with pytest.raises(PromptError):
         latest_name(tmp_path, "draft")
@@ -156,7 +156,7 @@ async def test_drafter_gets_only_the_contacts_facts(
     )
     await modes.close()
     await conn.close()
-    drafts = [user for name, user in backend.calls if name == "draft_v2"]
+    drafts = [user for name, user in backend.calls if name.startswith("draft_v")]
     assert drafts, backend.calls
     for text in present:
         assert text in drafts[0]

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0: M9 earned auto replies, tone learning, backups, autostart, wake word (2026-11-08)
+- **Earned auto replies:** with `auto_replies: unlocked`, FLINS sends its AI replies without
+  review to contacts you opted in (`flins contacts auto "<name>" on`, or the Contacts page),
+  once you've approved at least 20 of its drafts for them with at most 10% edited or rejected.
+  Guard, red-flag check, mode, tier and money/OTP rules all still apply. `flins contacts` shows
+  each contact's progress. policy.yaml can only make the bar higher.
+- **Tone learning:** your edits to drafts are shown to the drafter as style examples
+  (prompt `draft_v3`): style only, never facts.
+- **Encrypted backups:** `flins backup | backup list | backup restore <file>`. Database
+  snapshot plus your personal config, AES-256-GCM with a passphrase from
+  `FLINS_BACKUP_PASSPHRASE` (`.env` is never included). One a day while `flins run` runs.
+- **Autostart:** `flins autostart on [--voice] | off | status` (Task Scheduler, not elevated;
+  Startup folder as a fallback), plus `scripts/autostart.ps1`.
+- **Wake word:** say "FLINS" (or "FLINS, status" in one go) with `voice.wake_word: true`.
+  Local Whisper `tiny`, nothing saved, ignores FLINS's own voice.
+- New dependency: `cryptography`. Tests: 672 Python, 9 Node.
+
 ## 0.8.0: M8 Hermes builds skills, you approve them (2026-11-08)
 - `flins skilldev`: an MCP server (official `mcp` SDK, stdio) for Hermes Agent: read the skill
   spec and examples, scaffold, write files, validate, test and submit skills. Writes are confined
