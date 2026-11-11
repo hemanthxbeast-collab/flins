@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from flins import cli
 from flins.assistant.core import CANT
 from flins.assistant.memory import SqlMemory, guess_kind, is_secret, score_importance
-from flins.assistant.memory_commands import MEMORY_OFF, REMINDER
+from flins.assistant.memory_commands import MEMORY_OFF
 from flins.core.clock import FrozenClock
 from flins.core.db import connect, migrate
 from flins.core.levels import Mode
@@ -185,7 +185,9 @@ async def test_remember_saves_without_a_model_and_shows_up_with_its_source(rig: 
 async def test_secrets_and_reminders_are_not_stored(rig: Rig) -> None:
     refused = await rig.say("remember that my ATM PIN is 4321", source="cli")
     assert refused is not None and refused.startswith("I won't save that")
-    assert await rig.say("remember to call mom at 7", source="cli") == REMINDER
+    # "remember to …" is a reminder (phase 3), never a stored memory.
+    said = await rig.say("remember to call mom at 7", source="cli")
+    assert said is not None and said.startswith("Reminder set")
     assert await rows(rig.conn) == []
     assert "pin code" in (await rig.say("remember that my pin code is 560001", "cli") or "")
     assert len(await rows(rig.conn)) == 1
@@ -424,9 +426,9 @@ def test_whatsapp_replies_do_not_get_your_memories() -> None:
         assert "flins.assistant" not in text and "memories" not in text, name
 
 
-def test_chat_prompt_v2_explains_memory_without_personal_details() -> None:
+def test_chat_prompt_explains_memory_without_personal_details() -> None:
     p = load_prompt(REPO_ROOT / "prompts", "chat")
-    assert p.version == "chat_v2" and "<memories>" in p.system and "remember_importance" in p.system
+    assert "<memories>" in p.system and "remember_importance" in p.system
     assert "Never guess a source or a date" in p.system
 
 

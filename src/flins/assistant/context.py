@@ -8,7 +8,7 @@ open or close a block.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -39,6 +39,7 @@ class TurnContext:
     summary: str | None
     earlier: str | None  # summary of the previous session
     turns: list[Turn]
+    tasks: list[str] = field(default_factory=list)  # open tasks, soonest first
 
 
 class ContextBuilder:
@@ -82,6 +83,9 @@ class ContextBuilder:
             # Each memory with where it came from, so the model can say so and never guess.
             lines = [f"- {_clip(m.content, 500)} ({neutralise(m.source)})" for m in stored]
             blocks.append("<memories>\n" + "\n".join(lines) + "\n</memories>")
+        if c.tasks:
+            lines = [f"- {_clip(t, 260)}" for t in c.tasks]
+            blocks.append("<tasks>\n" + "\n".join(lines) + "\n</tasks>")
         if c.earlier:
             blocks.append(
                 f"<earlier_conversation>\n{_clip(c.earlier, 1500)}\n</earlier_conversation>"

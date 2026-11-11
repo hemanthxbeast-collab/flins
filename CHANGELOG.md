@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.13.0: phase 3a, tasks and reminders (2026-11-11)
+- **Reminders and tasks.** "remind me to call the bank at 7", "remind me every weekday at 8am
+  to …", "add a task …", "what are my tasks", "done with …", "delete the task …", "snooze 20
+  minutes". Fixed phrases, no AI model: they work offline and cost nothing.
+- **Time phrases** understood without a model: clock times, "in 20 minutes", today / tomorrow /
+  weekdays, morning / evening / tonight, and repeats (every day, weekday, week, or named day).
+  No clear time means FLINS asks; it never guesses one.
+- **Delivery:** `flins run` checks every second and sends a due reminder to your self-chat (and
+  speaks it with voice on). Each fires once. They wait while FLINS is stopped and are marked
+  "(was due …)" when late; in focus mode they are written, not spoken, unless high priority.
+- The conversation model sees your open tasks (`<tasks>` block, prompt `chat_v3`), so "what
+  should I work on?" is answered from the real list. It still cannot create one itself; if a
+  request reaches it, it tells you the phrase to say.
+- "remember to …" now sets a reminder (it used to answer "I can't set reminders yet").
+- `flins tasks` (list, add, done, delete) and a dashboard **Tasks** page.
+- New table `tasks` (migration 0013). Audit rows name a task by id, never by title.
+- Groundwork only, not switched on: a `max` speech-recognition preset (Whisper large-v3-turbo
+  on the GPU) and the NVIDIA runtime libraries in the `voice` extra. Your config is unchanged.
+- Tests: 817 Python (39 new), 11 Node. Eval unchanged: 0 unsafe of 162.
+
 ## 0.12.0: phase L, FLINS runs on local models (2026-11-11)
 - **Local models work.** Conversation, command understanding, summaries, reasoning and coding
   can all run on this PC through Ollama, with a cloud provider as optional fallback. Tested

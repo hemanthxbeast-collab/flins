@@ -198,7 +198,7 @@ async def test_context_has_identity_state_and_time_but_no_hardcoded_person(rig: 
     assert "mode: Working mode until 18:00" in ctx
     assert "drafts waiting for approval: 0" in ctx
     # Personal details live in config, never in the prompt files.
-    for name in ("chat_v1.md", "chat_v2.md", "summary_v1.md"):
+    for name in ("chat_v1.md", "chat_v2.md", "chat_v3.md", "summary_v1.md"):
         text = (PROMPTS / name).read_text(encoding="utf-8")
         assert user.name not in text and "Asia/Kolkata" not in text
 
@@ -230,16 +230,16 @@ async def test_clarifying_questions_pass_through(rig: Rig) -> None:
 )
 async def test_replies_claiming_an_action_are_replaced(rig: Rig, bad: dict[str, Any]) -> None:
     rig.answers(chat=bad)
-    reply = await rig.assistant.handle("remind me at 7 to call the bank", source="cli")
+    reply = await rig.assistant.handle("book me a cab to the station for 7", source="cli")
     assert reply.text == CANT and reply.flagged
     assert (await rig.turns())[-1][3] == CANT  # the false claim is never stored or shown
     assert (await rig.audit("assistant.turn"))[-1]["flagged"]
 
 
 async def test_an_honest_cannot_is_kept(rig: Rig) -> None:
-    said = "I can't set reminders yet. Put it in your phone for now."
+    said = "I can't book cabs yet. Use the app for now."
     rig.answers(chat=chat(said, "cannot", claims_action=True))  # self-report alone isn't enough
-    assert await rig.say("remind me at 7", source="cli") == said
+    assert await rig.say("book me a cab for 7", source="cli") == said
 
 
 def test_the_core_has_no_way_to_send() -> None:
@@ -452,7 +452,7 @@ async def test_long_or_planning_requests_use_the_reasoning_model(rig: Rig) -> No
 async def test_every_turn_is_audited_without_its_text(rig: Rig) -> None:
     await rig.say("a very private question about zebras", source="cli")
     row = (await rig.audit("assistant.turn"))[-1]
-    assert row["route"] == "chat" and row["source"] == "cli" and row["prompt"] == "chat_v2"
+    assert row["route"] == "chat" and row["source"] == "cli" and row["prompt"] == "chat_v3"
     assert row["chars_in"] == len("a very private question about zebras")
     assert "zebras" not in json.dumps(row)
 

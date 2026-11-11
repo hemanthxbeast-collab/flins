@@ -69,7 +69,8 @@ class VoiceConfig(_Strict):
     hotkey: str = "<ctrl>+<alt>+<space>"
     # fast = base model (~0.7 s); balanced = small + careful search (~2-3 s, much better with
     # Indian English); best = medium (~6 s+, 1.5 GB download). stt_model overrides the model.
-    accuracy: Literal["fast", "balanced", "best"] = "balanced"
+    # max = Whisper large-v3-turbo: by far the most accurate, but needs stt_device cuda/auto.
+    accuracy: Literal["fast", "balanced", "best", "max"] = "balanced"
     stt_model: str | None = None  # faster-whisper: tiny, base, small, medium, large-v3
     stt_device: Literal["cpu", "cuda", "auto"] = "cpu"  # cuda needs NVIDIA's CUDA 12 libraries
     # "en" (default) stops short clips being mistaken for German or Dutch. Use "hi"/"te" if you

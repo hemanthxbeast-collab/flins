@@ -22,6 +22,8 @@ from flins.adapters.base import ConnectionChanged, SidecarHello
 from flins.adapters.protocol import MIN_SECRET_LENGTH
 from flins.adapters.sidecar_proc import Sidecar, SidecarSetupError, port_open
 from flins.assistant.core import Assistant
+from flins.assistant.task_commands import deliver_due
+from flins.assistant.timeparse import extract
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import SystemClock
@@ -30,8 +32,8 @@ from flins.core.db import connect, migrate, table_names
 from flins.core.events import Event, EventBus
 from flins.core.ingest import ContactsResult, Ingestor, StoredMessage
 from flins.core.intents import IntentParser
-from flins.core.levels import Level
-from flins.core.modes import ModeManager
+from flins.core.levels import Level, Mode
+from flins.core.modes import ModeManager, effective_mode
 from flins.core.outbox import OutboxWorker
 from flins.core.pipeline import Pipeline
 from flins.core.selfchat import SelfChatNotifier
@@ -50,6 +52,7 @@ from flins.wiring import (
     make_skills,
     memory_store,
     open_assistant,
+    task_store,
 )
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
@@ -443,6 +446,8 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
         )
         print("Ctrl+C to stop.")
 
+        reminders = task_store(settings, conn)
+
         async def tick_forever() -> None:
             assert modes is not None
             while True:
@@ -450,6 +455,17 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
                     await pipeline.flush_due()
                     await approvals.expire_due(clock.now())
                     await outbox.run_due()
+                    # Reminders that are due: to your self-chat, and spoken with voice on.
+                    state_now = effective_mode(modes.state, clock.now())
+                    for line in await deliver_due(
+                        reminders,
+                        clock.now(),
+                        paused=state_now == Mode.PAUSED,
+                        focus=state_now == Mode.FOCUS,
+                        note=notifier.note,
+                        say=voice_loop.say if voice_loop is not None else None,
+                    ):
+                        print(f"   FLINS: {line}")
                     result = await modes.tick()
                     if result is not None:
                         print(f"   FLINS: {result.readback}")
@@ -903,6 +919,61 @@ async def _memory(settings: Settings, action: str, rest: list[str]) -> int:
         await conn.close()
 
 
+async def _tasks(settings: Settings, action: str, rest: list[str]) -> int:
+    """`flins tasks`: your task list and reminders."""
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    now = SystemClock().now()
+    try:
+        tasks = task_store(settings, conn)
+        if action == "list":
+            items = await tasks.open()
+            print(f"{len(items)} open task{'s' if len(items) != 1 else ''}.")
+            for t in items:
+                print(f"  #{t.id} {t.line(now, tasks.tz)}")
+            done = await tasks.recently_done(5)
+            if done:
+                print("Recently done:")
+                for t in done:
+                    print(f"  #{t.id} {t.title}")
+            return 0
+        if action == "add":
+            when = extract(" ".join(rest), now, tasks.tz)
+            title = when.title.strip()
+            if not title:
+                print('Add what? flins tasks add "call the bank tomorrow at 7"')
+                return 2
+            t = await tasks.add(
+                title, source="cli", channel="cli", now=now, at=when.at, repeat=when.repeat
+            )
+            print(f"Added #{t.id}: {t.line(now, tasks.tz)}")
+            return 0
+        if not rest or not rest[0].lstrip("#").isdigit():
+            print(f"Which one? flins tasks {action} <number>  (see: flins tasks list)")
+            return 2
+        task = await tasks.get(int(rest[0].lstrip("#")))
+        if task is None or task.status != "open":
+            print(f"There's no open task #{rest[0].lstrip('#')}.")
+            return 1
+        if action == "done":
+            after = await tasks.complete(task, now)
+            again = f" Next: {after.line(now, tasks.tz)}" if after.status == "open" else ""
+            print(f"Done #{task.id}: {task.title}.{again}")
+        else:
+            await tasks.cancel(task, now, via="cli")
+            print(f"Deleted #{task.id}: {task.title}.")
+        return 0
+    finally:
+        await conn.close()
+
+
+def cmd_tasks(root: Path | None, action: str, rest: list[str]) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_tasks(settings, action, rest))
+
+
 def cmd_memory(root: Path | None, action: str, rest: list[str]) -> int:
     settings = _load(root)
     if settings is None:
@@ -1267,6 +1338,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["list", "add", "forget", "edit", "clear", "on", "off"],
     )
     mem.add_argument("rest", nargs="*")
+    tsk = sub.add_parser(
+        "tasks", help='tasks and reminders: list, add "<text with a time>", done <n>, delete <n>'
+    )
+    tsk.add_argument("action", nargs="?", default="list", choices=["list", "add", "done", "delete"])
+    tsk.add_argument("rest", nargs="*")
     wa = sub.add_parser("wa", help="WhatsApp sidecar commands (M1)")
     wa_sub = wa.add_subparsers(dest="wa_command", required=True)
     pair = wa_sub.add_parser("pair", help="pair FLINS as a linked device (shows a QR)")
@@ -1346,6 +1422,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_local(root, args.action)
     if args.command == "memory":
         return cmd_memory(root, args.action, args.rest)
+    if args.command == "tasks":
+        return cmd_tasks(root, args.action, args.rest)
     if args.command == "ask":
         return cmd_ask(root, " ".join(args.text), interactive=False)
     if args.command == "chat":

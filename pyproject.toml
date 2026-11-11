@@ -1,6 +1,6 @@
 [project]
 name = "flins"
-version = "0.12.0"
+version = "0.13.0"
 description = "FLINS: local-first personal voice + WhatsApp assistant"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -30,6 +30,8 @@ voice = [
     "pyttsx3>=2.90",
     "pynput>=1.7",
     "piper-tts>=1.3",
+    "nvidia-cublas-cu12==12.4.5.8 ; sys_platform == 'win32'",
+    "nvidia-cudnn-cu12>=9.1,<9.2 ; sys_platform == 'win32'",
 ]
 
 [project.scripts]

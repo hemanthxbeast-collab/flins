@@ -6,7 +6,7 @@ and the git history. `docs/SPEC.md` stays the source of truth for the WhatsApp s
 This document describes how FLINS grows from a messaging assistant into one personal assistant
 **without a rewrite**.
 
-**Status:** phase 1 (assistant core, 0.10.0) and phase 2 (memory, 0.11.0) are built. Next: phase L (local models, §6), then phase 3 (tasks, reminders, planning).
+**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3a (tasks and reminders, 0.13.0; [milestones/J3.md](milestones/J3.md)). Next: phase 3b (planning), then phase 4 (tools).
 
 ## 1. Where FLINS is today
 

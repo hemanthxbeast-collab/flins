@@ -15,6 +15,8 @@ from flins.assistant.conversation import ConversationStore
 from flins.assistant.core import Assistant, Commands
 from flins.assistant.memory import CombinedMemory, ProfileMemory, SqlMemory
 from flins.assistant.memory_commands import MemoryCommands
+from flins.assistant.task_commands import TaskCommands
+from flins.assistant.tasks import TaskStore
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock, SystemClock
@@ -200,6 +202,10 @@ def memory_store(settings: Settings, conn: aiosqlite.Connection, clock: Clock) -
     return SqlMemory(conn, ZoneInfo(settings.policy.user.timezone), clock)
 
 
+def task_store(settings: Settings, conn: aiosqlite.Connection) -> TaskStore:
+    return TaskStore(conn, ZoneInfo(settings.policy.user.timezone))
+
+
 def make_assistant(
     settings: Settings,
     conn: aiosqlite.Connection,
@@ -219,6 +225,7 @@ def make_assistant(
         summariser = Summariser(gateway, load_prompt(settings.prompts_dir, "summary"))
     store = conversation_store(settings, conn)
     stored = memory_store(settings, conn, clock)
+    tasks = task_store(settings, conn)
     audit = AuditLog(conn)
     return Assistant(
         commands,
@@ -235,6 +242,8 @@ def make_assistant(
         approvals=approvals,
         stored=stored,
         memory_commands=MemoryCommands(stored, store, commands, cfg, audit),
+        tasks=tasks,
+        task_commands=TaskCommands(tasks, commands),
     )
 
 

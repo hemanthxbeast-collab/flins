@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2 style="margin-top:0">Tasks and reminders</h2>
+  <p class="muted">Your list. Tell {{ assistant_name }} "remind me to call the bank at 7" or
+    "add a task …", or add one here. A task with a time is also a reminder: it comes to your
+    notes-to-self chat (and is spoken when voice is on). Reminders only ever go to you.</p>
+  <form class="row" method="post" action="/tasks">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="text" name="text" placeholder="e.g. submit the lab report tomorrow at 5pm" size="60" maxlength="200" required>
+    <button name="action" value="add">Add</button>
+  </form>
+</div>
+
+{% if not rows %}<p class="muted">Nothing on your list.</p>{% endif %}
+{% for r in rows %}
+<div class="card">
+  <form method="post" action="/tasks" class="row">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="task_id" value="{{ r.id }}">
+    <span style="flex:1">#{{ r.id }} · {{ r.line }}
+      {% if r.overdue %}<span class="chip urgent">overdue</span>{% endif %}</span>
+    <button name="action" value="done">Done</button>
+    <button name="action" value="delete" class="danger">Delete</button>
+  </form>
+</div>
+{% endfor %}
+
+{% if done %}
+<div class="card">
+  <h3 style="margin-top:0">Recently done</h3>
+  {% for title in done %}<div class="muted">✓ {{ title }}</div>{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

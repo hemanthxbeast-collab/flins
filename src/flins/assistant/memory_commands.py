@@ -136,7 +136,7 @@ class MemoryCommands:
             return await self._forget_about(m.group("x").strip(" .?!\"'"), source, now)
         if _REMEMBER_BARE.match(t):
             return await self._remember_previous(source, now)
-        if _REMINDER.match(t):
+        if _REMINDER.match(t):  # only reached when task commands aren't available
             return REMINDER
         m = _REMEMBER.match(t)
         if m:

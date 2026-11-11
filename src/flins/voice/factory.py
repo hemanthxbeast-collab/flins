@@ -11,7 +11,7 @@ from flins.core.intents import contact_names
 from flins.settings import Settings
 from flins.voice.audio import MicRecorder
 from flins.voice.loop import VoiceLoop, _Router
-from flins.voice.stt import PRESETS, WhisperSTT
+from flins.voice.stt import PRESETS, WhisperSTT, gpu_available
 from flins.voice.tts import TTS, PiperTTS, PrintTTS, SapiTTS
 
 INSTALL_HINT = "Voice isn't installed. Run: uv sync --extra voice"
@@ -51,8 +51,15 @@ def make_tts(settings: Settings) -> TTS:
 def make_stt(settings: Settings) -> WhisperSTT:
     v = settings.app.voice
     model, beam = PRESETS[v.accuracy]
+    device = v.stt_device
+    if device == "auto":
+        device = "cuda" if gpu_available() else "cpu"
     return WhisperSTT(
-        v.stt_model or model, device=v.stt_device, language=v.language, beam_size=beam
+        v.stt_model or model,
+        device=device,
+        compute_type="float16" if device == "cuda" else "int8",
+        language=v.language,
+        beam_size=beam,
     )
 
 

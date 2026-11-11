@@ -124,7 +124,10 @@ voice:
   hotkey: "<ctrl>+<alt>+<space>"
   accuracy: balanced      # fast (base, ~0.7 s) | balanced (small, careful, better with Indian
                           # English) | best (medium, slow, 1.5 GB). stt_model: <name> overrides.
-  stt_device: cpu         # cuda = NVIDIA GPU (needs CUDA 12 + cuDNN installed)
+                          # max = Whisper large-v3-turbo on an NVIDIA GPU: the most accurate
+                          # by far (use with stt_device: cuda or auto; 1.6 GB download).
+  stt_device: cpu         # cuda = NVIDIA GPU; auto = GPU if there is one. The GPU libraries
+                          # come with `uv sync --extra voice` on Windows.
   language: en            # en stops short clips being read as German; null = detect every time
   tts: sapi               # sapi = Windows voices; piper = more natural (first run:
                           # uv run flins voice download); print = show text only

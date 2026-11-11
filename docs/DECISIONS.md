@@ -2,6 +2,27 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 3a: tasks and reminders (2026-11-11)
+- **Commands, not model output, create tasks.** Same rule as memory: the conversation model
+  cannot act, so a reminder exists only if a fixed phrase matched and a row was written. The
+  model sees the list (`<tasks>`) and can point you to the phrase.
+- **A reminder is a task with a time.** One table; `remind_at` is cleared once delivered, so a
+  reminder can't fire twice, and the task stays open until you say it's done.
+- **No guessed times.** No clear time → FLINS asks. A bare hour ("at 7") means the next time the
+  clock shows it; for a repeating reminder it means the morning. The reply always states the
+  exact time, so a wrong reading is visible at once.
+- **Reminders are notes to you only**: delivered through the self-chat note path and voice,
+  never through the Outbox to a contact (invariants 2 and 8 untouched). A test scans the task
+  modules for any send path.
+- **Stopped means quiet.** While PAUSED nothing is delivered; reminders are held and marked late
+  on resume. Focus mode: written, not spoken, unless high priority. (Cautious reading of "stop".)
+- **Self-chat:** "remind me …" always counts; "remember to …" / "add a task …" count only when
+  you're addressing FLINS, because that chat is also your own notes.
+- **Missed repeats don't pile up:** after the PC was off, a repeating reminder fires once and
+  moves to its next future time.
+- **Phase 3b (planning) is separate**: multi-step plans need the tool layer's shape (phase 4)
+  to be worth designing; nothing here blocks it.
+
 ## Phase L: local models, measured (2026-11-11)
 Laptop: i7-14650HX, 16 GB RAM, RTX 4060 Laptop 8 GB. Ollama 0.40.16.
 - **Why the first test failed:** thinking models think by default. Through the

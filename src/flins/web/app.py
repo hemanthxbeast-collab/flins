@@ -24,6 +24,7 @@ from markupsafe import Markup
 
 from flins.adapters.sidecar_proc import Sidecar, SidecarSetupError
 from flins.assistant.core import Assistant
+from flins.assistant.timeparse import extract
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.autonomy import auto_stats, set_optin
@@ -41,7 +42,7 @@ from flins.skilldev.workspace import NAME, WorkspaceError
 from flins.skills.engine import SkillEngine
 from flins.skills.lock import LOCK_FILE, SkillLock
 from flins.web.qr import qr_svg, read_pair_state
-from flins.wiring import conversation_store, memory_store, start_assistant
+from flins.wiring import conversation_store, memory_store, start_assistant, task_store
 
 TIERS = ["inner", "trusted", "known", "unknown", "blocked"]
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -466,6 +467,74 @@ def create_app(
             else:
                 raise HTTPException(status_code=400, detail="unknown action")
         return RedirectResponse(f"/memory?msg={quote(msg)}", status_code=303)
+
+    # ------------------------------------------------------------------ tasks (J3)
+
+    @app.get("/tasks", response_class=HTMLResponse)
+    async def tasks_page(request: Request) -> HTMLResponse:
+        s = need_settings()
+        now = clk.now()
+        async with db() as conn:
+            tasks = task_store(s, conn)
+            rows = [
+                {
+                    "id": t.id,
+                    "title": t.title,
+                    "line": t.line(now, tasks.tz),
+                    "high": t.priority == "high",
+                    "overdue": t.when is not None and t.when < now,
+                }
+                for t in await tasks.open()
+            ]
+            done = [t.title for t in await tasks.recently_done(8)]
+        return page(
+            request,
+            "tasks.html",
+            rows=rows,
+            done=done,
+            assistant_name=s.app.assistant.name,
+            mode=await mode_text(),
+        )
+
+    @app.post("/tasks")
+    async def tasks_change(
+        action: str = Form(...),
+        token: str = Form(...),
+        text: str = Form(""),
+        task_id: int = Form(0),
+    ) -> RedirectResponse:
+        check_token(token)
+        s = need_settings()
+        now = clk.now()
+        async with db() as conn:
+            tasks = task_store(s, conn)
+            if action == "add":
+                when = extract(text, now, tasks.tz)
+                if not when.title.strip():
+                    msg = "A task needs a title."
+                else:
+                    await tasks.add(
+                        when.title,
+                        source="dashboard",
+                        channel="dashboard",
+                        now=now,
+                        at=when.at,
+                        repeat=when.repeat,
+                    )
+                    msg = "Added."
+            elif action in ("done", "delete"):
+                task = await tasks.get(task_id)
+                if task is None or task.status != "open":
+                    msg = "That task isn't open."
+                elif action == "done":
+                    await tasks.complete(task, now)
+                    msg = "Done."
+                else:
+                    await tasks.cancel(task, now, via="dashboard")
+                    msg = "Deleted."
+            else:
+                raise HTTPException(status_code=400, detail="unknown action")
+        return RedirectResponse(f"/tasks?msg={quote(msg)}", status_code=303)
 
     # ------------------------------------------------------------------ WhatsApp pairing
 

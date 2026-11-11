@@ -18,7 +18,42 @@ PRESETS = {
     "fast": ("base", 1),
     "balanced": ("small", 5),
     "best": ("medium", 5),
+    # Whisper's large model. Needs the GPU to be usable (well under a second per sentence on
+    # an RTX 4060; far too slow on a CPU). The clear choice for accented English.
+    "max": ("large-v3-turbo", 5),
 }
+CPU_FALLBACK_MODEL = "small"  # if the GPU can't be used, don't run a large model on the CPU
+
+
+def register_cuda_dlls() -> list[str]:
+    """Windows: make the NVIDIA runtime libraries from the `nvidia-*-cu12` pip packages
+    findable (they live in site-packages/nvidia/*/bin, which isn't on the DLL search path).
+    Returns the folders added. Harmless when the packages aren't installed."""
+    import os
+    import site
+    from pathlib import Path
+
+    added: list[str] = []
+    if os.name != "nt":
+        return added
+    roots = [*site.getsitepackages(), site.getusersitepackages()]
+    for sp in roots:
+        for d in Path(sp).glob("nvidia/*/bin"):
+            if d.is_dir() and str(d) not in added:
+                os.add_dll_directory(str(d))
+                os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+                added.append(str(d))
+    return added
+
+
+def gpu_available() -> bool:
+    """True if the speech library can see a CUDA GPU."""
+    try:
+        import ctranslate2
+
+        return int(ctranslate2.get_cuda_device_count()) > 0
+    except Exception:
+        return False
 
 
 @dataclass
@@ -56,11 +91,17 @@ class WhisperSTT:
     def load(self) -> None:
         """Load (and on first use, download) the model. Takes a while the first time."""
         if self._model is None:
+            if self._device != "cpu":
+                register_cuda_dlls()
             from faster_whisper import WhisperModel
 
             self._model = WhisperModel(
                 self._model_name, device=self._device, compute_type=self._compute_type
             )
+
+    @property
+    def device(self) -> str:
+        return self._device
 
     def _run(self, audio: Any, hint: str | None = None) -> Transcript:
         try:
@@ -71,7 +112,10 @@ class WhisperSTT:
                 k in str(exc).lower() for k in ("cuda", "cublas", "cudnn")
             ):
                 raise
-            self._device, self._model = "cpu", None
+            # Fall back to the CPU, with a model the CPU can run at a usable speed.
+            self._device, self._model, self._compute_type = "cpu", None, "int8"
+            if self._model_name in ("large-v3-turbo", "large-v3", "large-v2", "medium"):
+                self._model_name = CPU_FALLBACK_MODEL
             return self._transcribe(audio, hint)
 
     def _transcribe(self, audio: Any, hint: str | None = None) -> Transcript:

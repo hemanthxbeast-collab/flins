@@ -26,6 +26,8 @@ from flins.assistant.conversation import ConversationStore, Session
 from flins.assistant.memory import MemoryStore, NoMemory, SqlMemory, is_secret
 from flins.assistant.memory_commands import MemoryCommands
 from flins.assistant.models import SOURCES, MemoryItem, Reply, Route
+from flins.assistant.task_commands import TaskCommands
+from flins.assistant.tasks import TaskStore
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock
@@ -44,12 +46,13 @@ ACTION_CLAIM = re.compile(
     r"|\breminder (?:is |has been )?set\b|\bconsider it done\b|^\W*(?:done|noted|saved)\b",
     re.IGNORECASE,
 )
+MAX_TASK_LINES = 12
 SUMMARY_SLACK = 6  # fold old turns into the summary once this many pile up beyond history_turns
 
 CANT = (
     "I can't do that yet. For now I can talk things through and run my built-in commands: "
-    "modes, stop and resume, approvals, sending a message you dictate, what you missed, and "
-    "remembering things when you say 'remember that …'."
+    "modes, stop and resume, approvals, sending a message you dictate, what you missed, "
+    "reminders and tasks ('remind me to … at 7'), and remembering things ('remember that …')."
 )
 NO_AI = (
     "I can only run commands right now, because no AI model is set up (see `flins llm status`). "
@@ -110,6 +113,8 @@ class Assistant:
         approvals: ApprovalService | None = None,
         stored: SqlMemory | None = None,
         memory_commands: MemoryCommands | None = None,
+        tasks: TaskStore | None = None,
+        task_commands: TaskCommands | None = None,
     ) -> None:
         self._commands = commands
         self._store = store
@@ -124,6 +129,8 @@ class Assistant:
         self._approvals = approvals
         self._stored = stored  # long-term memory you can add to; None = not available
         self._memory_cmds = memory_commands
+        self._tasks = tasks
+        self._task_cmds = task_commands
         self._last_used: dict[str, list[MemoryItem]] = {}  # per channel: memories last shown
         self._last_suggest: datetime | None = None
         # Called with the channel just before a slower model (reasoning / coding) is asked,
@@ -148,19 +155,22 @@ class Assistant:
         if not text:
             return Reply(None, "silent", ["empty"])
 
-        # 0. Memory commands ("remember that ...", "forget that", "why do you know that"):
-        #    fixed phrases, no model. Not while FLINS asked an open question (then your words
-        #    are its answer), and in your self-chat only when you're talking to it.
-        if (
-            self._memory_cmds is not None
-            and not self._commands.awaiting_answer(source)
-            and (source != "self_chat" or await self._for_me(text, source, now))
-        ):
-            said = await self._memory_cmds.handle(
-                text, source, now, self._last_used.get(source, [])
-            )
+        # 0. Task and memory commands ("remind me to ... at 7", "remember that ...", "forget
+        #    that"): fixed phrases, no model. Not while FLINS asked an open question (then your
+        #    words are its answer). In your self-chat, only "remind me ..." counts unless you
+        #    are talking to FLINS: "remember to buy milk" there is a note to yourself.
+        if not self._commands.awaiting_answer(source):
+            addressed = source != "self_chat" or await self._for_me(text, source, now)
+            said, stage = None, "task command"
+            if self._task_cmds is not None:
+                said = await self._task_cmds.handle(text, source, now, addressed=addressed)
+            if said is None and self._memory_cmds is not None and addressed:
+                stage = "memory command"
+                said = await self._memory_cmds.handle(
+                    text, source, now, self._last_used.get(source, [])
+                )
             if said is not None:
-                reply = Reply(said, "command", ["memory command"])
+                reply = Reply(said, "command", [stage])
                 await self._finish(text, source, now, reply, started)
                 return reply
 
@@ -302,7 +312,15 @@ class Assistant:
             summary=session.summary,
             earlier=session.earlier,
             turns=await self._store.recent(session, self._cfg.history_turns),
+            tasks=await self._task_lines(now),
         )
+
+    async def _task_lines(self, now: datetime) -> list[str]:
+        """Your open tasks for the model, soonest first, so "what should I work on?" is
+        answered from the real list."""
+        if self._tasks is None:
+            return []
+        return [t.line(now, self._tasks.tz) for t in (await self._tasks.open())[:MAX_TASK_LINES]]
 
     @staticmethod
     def _check(out: ChatOut) -> str | None:
@@ -322,7 +340,8 @@ class Assistant:
         session = await self._store.session(now)
         await self._store.add(session, role="user", text=text, source=source, now=now)
         assert reply.text is not None
-        stored_as = "memory" if "memory command" in reply.stages else reply.route
+        direct = reply.stages[:1] in (["memory command"], ["task command"])
+        stored_as = "memory" if direct else reply.route
         await self._store.add(
             session, role="assistant", text=reply.text, source=source, now=now, route=stored_as
         )
