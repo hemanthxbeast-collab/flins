@@ -225,7 +225,9 @@ the reasoning model is loaded (the small model is unloaded first) → Piper spea
    existing `flins llm test`.
 
 ### Status (2026-11-11)
-Built in 0.11.1: the `code` role, task routing, one-model-at-a-time unloading, schema-constrained Ollama output, `flins local`. Not done: verification with real models, `flins local setup`, the spoken "one moment", moving any WhatsApp job.
+**Working in 0.12.0** (measured results in docs/DECISIONS.md): conversation, commands, summaries, reasoning and coding run locally. `reason` uses the 4B model with thinking on instead of the 9B model (which took 152 s per puzzle). Open: male Piper voice, `flins local setup`, one combined intent+chat call, the local safety eval.
+
+Earlier, built in 0.11.1: the `code` role, task routing, one-model-at-a-time unloading, schema-constrained Ollama output, `flins local`. Not done: verification with real models, `flins local setup`, the spoken "one moment", moving any WhatsApp job.
 
 ### Safety
 - WhatsApp jobs (`triage`, `draft`, `redflag`) stay on your current provider at first. They move

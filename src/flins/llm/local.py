@@ -49,6 +49,11 @@ class LocalModels:
         data = resp.json()
         return data if isinstance(data, dict) else {}
 
+    async def post(
+        self, path: str, body: dict[str, Any], timeout_s: float = 180.0
+    ) -> httpx.Response:
+        return await self._client.post(path, json=body, timeout=timeout_s)
+
     async def version(self) -> str | None:
         """Ollama's version, or None if it isn't running."""
         try:

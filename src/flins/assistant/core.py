@@ -126,6 +126,9 @@ class Assistant:
         self._memory_cmds = memory_commands
         self._last_used: dict[str, list[MemoryItem]] = {}  # per channel: memories last shown
         self._last_suggest: datetime | None = None
+        # Called with the channel just before a slower model (reasoning / coding) is asked,
+        # so a voice user hears "One moment." instead of silence.
+        self.on_wait: Callable[[str], Awaitable[None]] | None = None
         self._context = ContextBuilder(policy, cfg)
 
     @property
@@ -201,7 +204,7 @@ class Assistant:
         low = text.lower()
         if "```" in text or any(_has_word(low, cue) for cue in self._cfg.coding.cues):
             return "code"
-        if len(text) >= r.min_chars or any(cue in low for cue in r.cues):
+        if len(text) >= r.min_chars or any(_has_word(low, cue) for cue in r.cues):
             return "reason"
         return "chat"
 
@@ -214,6 +217,11 @@ class Assistant:
         session = await self._store.session(now)
         context = self._context.build(await self._turn_context(text, source, now, session))
         role = self._role(text, source)
+        if role != "chat" and self.on_wait is not None:
+            try:
+                await self.on_wait(source)
+            except Exception:  # a courtesy only: never let it block the answer
+                stages.append("wait notice failed")
         try:
             out = await self._chat.reply(context, role)
         except LLMRefusal:

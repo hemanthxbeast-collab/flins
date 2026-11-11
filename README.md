@@ -3,7 +3,7 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.11.1. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.12.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
 assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1 and 2 of 9 done).
@@ -27,6 +27,22 @@ commands still work in plain words ("I need to focus for two hours" → it asks,
 - **"stop" always works**, with or without an AI model.
 - Personality (name, concise/detailed, humour) is under `assistant:` in `config/flins.yaml`.
   Conversation is stored only on this PC and deleted after 30 days.
+
+## Local models (no API cost, stays on your PC)
+FLINS can run its conversation on models on your own computer through [Ollama](https://ollama.com):
+```powershell
+ollama pull qwen3.5:4b              # everyday talk, voice, commands, and reasoning (3.3 GB)
+ollama pull qwen2.5-coder:7b        # coding questions (4.7 GB)
+uv run flins local                  # what's downloaded, what's loaded, which job uses which
+```
+Then list `ollama` first for `intent`, `chat`, `summary`, `reason` and `code` under `llm.roles` in
+`config/flins.yaml` (the example file has the block ready to uncomment). A cloud provider listed
+after it is used only if the local model fails.
+
+Measured on an RTX 4060 laptop (8 GB): about 2 s per answer; reasoning questions let the model
+think first and take 15–60 s; switching to the coding model takes 7–15 s. Only one model is kept
+in video memory. A small local model is less capable than a large cloud one, so WhatsApp triage
+and drafting should stay on a provider that passes `flins eval --live`.
 
 ## Memory
 FLINS remembers what you tell it to, and nothing else. By voice, in chat, or typed:

@@ -279,6 +279,10 @@ class CommandRouter:
         if self._intents is None or source not in owner:
             return None
         quiet = self._conversational or source == "self_chat"
+        if _plain(text) in YES | NO:
+            # A bare "yes" / "no" with nothing waiting is never a command. Don't let a model
+            # guess one: a small local model read a stray "no" as "stop".
+            return None if quiet else HELP
         names = await contact_names(self._conn) if self._conn is not None else []
         try:
             intent = await self._intents.parse(text, names)

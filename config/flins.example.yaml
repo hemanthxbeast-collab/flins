@@ -63,7 +63,8 @@ llm:
     # intent:  [{provider: ollama, model: "qwen3.5:4b"}]
     # chat:    [{provider: ollama, model: "qwen3.5:4b"}]          # everyday talk and voice
     # summary: [{provider: ollama, model: "qwen3.5:4b"}]
-    # reason:  [{provider: ollama, model: "qwen3.5:9b"}]          # logic, planning, maths
+    # reason:  [{provider: ollama, model: "qwen3.5:4b"}]          # same model, but FLINS lets
+    #                                                              # it think (15-60 s, more accurate)
     # code:    [{provider: ollama, model: "qwen2.5-coder:7b"}]    # coding questions
     # Add a cloud entry after a local one to fall back to it when the local model fails.
     # Keep triage / draft / redflag (WhatsApp) on a provider that passes

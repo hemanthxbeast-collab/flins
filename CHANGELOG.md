@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.0: phase L, FLINS runs on local models (2026-11-11)
+- **Local models work.** Conversation, command understanding, summaries, reasoning and coding
+  can all run on this PC through Ollama, with a cloud provider as optional fallback. Tested
+  end to end on an RTX 4060 (8 GB): every call local, none failed.
+- The local backend now uses Ollama's own chat API: answers constrained to the JSON schema, a
+  12k-token context window (the default cut reasoning answers off), and thinking switched per
+  call. Local models **think only for the `reason` job**; everything else answers directly.
+- Measured with `qwen3.5:4b`: 24/24 simple questions right at ~2.3 s per turn; two reasoning
+  puzzles wrong without thinking and right with it (15–60 s). `qwen2.5-coder:7b` answers coding
+  questions in ~1–2 s once loaded; switching models costs 7–15 s.
+- Lower randomness (temperature 0.2) for direct answers, after the default produced a wrong
+  "25 times 4".
+- A bare "yes" / "no" with nothing pending is never sent to a model to guess a command (a small
+  model had read a stray "no" as "stop").
+- "One moment." is spoken before a slower reasoning or coding answer on voice.
+- Coding and reasoning cues match whole words ("plan" no longer matches "explanations").
+- Tests: 777 Python (9 new since 0.11.0), 11 Node. Eval unchanged: 0 unsafe of 162.
+
 ## 0.11.1: phase L groundwork, local models (2026-11-11)
 - **One local model in video memory at a time:** before a local (Ollama) model is used, FLINS
   unloads any other loaded model (`llm/local.py`). Ollama answers are now constrained to the

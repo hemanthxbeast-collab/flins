@@ -30,12 +30,14 @@ PROMPTS = REPO_ROOT / "prompts"
 
 
 class FakeOllama:
-    """Enough of Ollama's API: /api/ps, /api/generate (unload), /v1/chat/completions (load)."""
+    """Enough of Ollama's API: /api/ps, /api/generate (unload), /api/chat (load + answer)."""
 
     def __init__(self, loaded: list[str] | None = None) -> None:
         self.loaded = list(loaded or [])
         self.log: list[str] = []
         self.bodies: list[dict[str, Any]] = []
+        self.no_think: set[str] = set()  # models without a thinking mode
+        self.done_reason = "stop"
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -56,8 +58,12 @@ class FakeOllama:
             self.loaded.remove(body["model"])
             self.log.append(f"unload {body['model']}")
             return httpx.Response(200, json={"done": True})
-        if path == "/v1/chat/completions":
+        if path == "/api/chat":
             self.bodies.append(body)
+            if "think" in body and body["model"] in self.no_think:
+                return httpx.Response(
+                    400, json={"error": f"{body['model']} does not support thinking"}
+                )
             if body["model"] not in self.loaded:
                 self.loaded.append(body["model"])
             self.log.append(f"ask {body['model']}")
@@ -73,9 +79,10 @@ class FakeOllama:
                 200,
                 json={
                     "model": body["model"],
-                    "choices": [
-                        {"message": {"content": json.dumps(answer)}, "finish_reason": "stop"}
-                    ],
+                    "message": {"content": json.dumps(answer), "thinking": "hmm"},
+                    "done_reason": self.done_reason,
+                    "prompt_eval_count": 900,
+                    "eval_count": 30,
                 },
             )
         return httpx.Response(404)
@@ -105,7 +112,36 @@ async def test_only_one_model_stays_loaded() -> None:
         "ask small:4b",
     ]
     assert fake.loaded == ["small:4b"]
-    assert fake.bodies[0]["response_format"]["type"] == "json_schema"  # schema-constrained
+    first = fake.bodies[0]
+    assert first["format"] == {} and first["stream"] is False  # constrained to the schema given
+    assert first["think"] is False  # everyday answers: no slow "thinking"
+    assert first["options"]["num_ctx"] >= 8192  # room for FLINS's prompt
+
+
+async def test_local_models_think_only_for_reasoning() -> None:
+    from dataclasses import replace
+
+    fake = FakeOllama()
+    backend = LocalBackend(BUILTIN_PROVIDERS["ollama"], None, transport=httpx.MockTransport(fake))
+    chat = replace(load_prompt(PROMPTS, "chat"), model="small:4b")
+    await backend.complete(prompt=replace(chat, effort="medium"), user="code q", schema={})
+    await backend.complete(prompt=replace(chat, effort="high"), user="logic q", schema={})
+    quick, thinking = fake.bodies
+    assert quick["think"] is False and thinking["think"] is True
+    assert quick["options"]["temperature"] <= 0.3 and "temperature" not in thinking["options"]
+    assert thinking["options"]["num_predict"] >= 8192  # room to think *and* answer
+    assert quick["options"]["num_ctx"] == thinking["options"]["num_ctx"]  # no reload between them
+
+    # A model with no thinking mode (the coder) is asked again without the switch.
+    fake.no_think.add("coder:7b")
+    raw = await backend.complete(prompt=replace(chat, model="coder:7b"), user="q", schema={})
+    assert json.loads(raw.text)["reply"] == "ok" and "think" not in fake.bodies[-1]
+    assert raw.input_tokens == 900 and raw.output_tokens == 30
+
+    # An answer that ran out of room is reported as cut off (the gateway then falls back).
+    fake.done_reason = "length"
+    cut = await backend.complete(prompt=chat, user="q", schema={})
+    assert cut.stop_reason == "max_tokens"
 
 
 async def test_status_helpers_and_ollama_down() -> None:
@@ -177,13 +213,44 @@ async def test_questions_go_to_the_right_specialist(rig: Rig) -> None:
         "```\nfor i in x: pass\n```",
         "make a plan for my revision week",
         "is java or javascript older?",
-        "what is the capital gain here?",  # "api" must not match inside "capital"
+        "what is the capital gain here?",
+        "I like explanations with a small code example",  # a preference, not a coding question
+        "what's the function of the liver?",
+        "write a function that reverses a string",
     ):
         await rig.say(text, source="cli")
-    assert [r for _, r in seen] == ["chat", "code", "code", "reason", "code", "chat"]
+    assert [r for _, r in seen] == [
+        "chat",
+        "code",
+        "code",
+        "reason",
+        "code",
+        "chat",
+        "chat",
+        "chat",
+        "code",
+    ]
     await rig.say("debug my python script", source="voice")
     assert seen[-1][1] == "chat"  # voice stays on the fast model by default
     rig.settings.app.assistant.voice_big_models = True
     await rig.say("debug my python script", source="voice")
     await rig.say("compare these two plans step by step", source="voice")
     assert [r for _, r in seen[-2:]] == ["code", "reason"]
+
+
+async def test_one_moment_before_a_slow_answer(rig: Rig) -> None:
+    waits: list[str] = []
+
+    async def note(source: str) -> None:
+        waits.append(source)
+
+    rig.assistant.on_wait = note
+    await rig.say("who wrote Hamlet?", source="cli")  # fast model: no notice
+    await rig.say("make a plan for my revision week", source="cli")
+    assert waits == ["cli"]
+
+    async def broken(source: str) -> None:
+        raise RuntimeError("speaker unplugged")
+
+    rig.assistant.on_wait = broken
+    assert await rig.say("compare these two plans step by step", source="cli") == "Hello."

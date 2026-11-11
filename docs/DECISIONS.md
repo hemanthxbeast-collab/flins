@@ -2,6 +2,36 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase L: local models, measured (2026-11-11)
+Laptop: i7-14650HX, 16 GB RAM, RTX 4060 Laptop 8 GB. Ollama 0.40.16.
+- **Why the first test failed:** thinking models think by default. Through the
+  OpenAI-compatible endpoint the 4B model spent 25–40 s thinking per answer and sometimes used
+  the whole budget (empty answer). `think: false` there was ignored; `reasoning_effort: none`
+  worked; the native API's `think: false` works and also allows a bigger context window.
+- **Native API for local models** (`/api/chat`): `format` = the JSON schema, `think` per call,
+  `num_ctx` 12288 (same for every call, because Ollama reloads a model when it changes),
+  `keep_alive` 30 minutes. A model without a thinking mode is retried without the switch.
+- **The 9B model is not used.** With thinking it needed 152 s for a puzzle the 4B model solved
+  in 34 s; without thinking it was wrong. So `reason` = the same `qwen3.5:4b` with thinking
+  on: no model switch, right on the puzzles tried. `qwen3.5:9b` (6.6 GB) can be deleted with
+  `ollama rm qwen3.5:9b`.
+- **Honest limits of a 4B model:** it is good at simple questions (24/24) and follows FLINS's
+  JSON format, but it is weaker than the cloud 120B model at longer conversations (it once
+  answered a stated preference by repeating an earlier topic) and at command understanding.
+  That is why the yes/no guard was added, and why anything that sends or changes a mode
+  still asks for confirmation.
+- **Speed:** ~2.3 s per turn locally (two calls: understand, then answer) against ~1.2 s on
+  Groq when Groq is quick and 3–12 s when it isn't. Local is steadier, free and private, not
+  faster. Alternating two prompts on one model also defeats Ollama's prompt cache; a single
+  combined call is the obvious next speed-up.
+- **WhatsApp jobs stay on the cloud provider.** Not evaluated locally yet
+  (`flins eval --live --provider ollama`).
+- **Your config** (`config/flins.yaml`, git-ignored) was created from the example with
+  intent / chat / summary / reason / code on Ollama first and Groq as fallback, and
+  `voice_big_models: true`.
+- Still open: a male Piper voice (needs a ~60 MB voice download), `flins local setup`,
+  merging intent + chat into one call, the local safety eval.
+
 ## Phase L groundwork: local models (2026-11-11)
 Plan: `docs/JARVIS_ARCHITECTURE.md` §6.
 - **Unloading is explicit, not left to Ollama's defaults.** `LocalBackend` asks Ollama what is

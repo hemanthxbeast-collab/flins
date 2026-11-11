@@ -111,6 +111,11 @@ DEFAULT_ROLES: dict[str, list[dict[str, Any]]] = {
     "redflag": [{"provider": "anthropic", "model": "claude-haiku-5-5"}],
 }
 
+THINKING_EFFORTS = ("high", "xhigh", "max")
+LOCAL_THINKING_TOKENS = 8192  # room for the thinking *and* the answer
+LOCAL_NUM_CTX = 12288  # context window for local models (prompt + thinking + answer)
+LOCAL_TEMPERATURE = 0.2
+LOCAL_KEEP_ALIVE = "30m"  # how long an idle local model stays in video memory
 _EFFORT = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
@@ -326,7 +331,12 @@ class ConfiguredRouter:
 
 class LocalBackend(OpenAICompatBackend):
     """A provider on this PC. Before each call, other loaded models are unloaded so the one
-    being asked fits in video memory (llm/local.py)."""
+    being asked fits in video memory (llm/local.py).
+
+    Small local models "think" before answering unless told not to. Measured on an RTX 4060
+    with a 4B model: thinking off ~0.5 s per answer, thinking on 15-35 s. On two test
+    questions the answers were wrong without thinking and right with it. So they think only
+    for the reasoning job (prompt effort "high")."""
 
     def __init__(
         self,
@@ -341,8 +351,65 @@ class LocalBackend(OpenAICompatBackend):
         self.models = LocalModels(spec.base_url, transport=transport)
 
     async def complete(self, *, prompt: Prompt, user: str, schema: dict[str, Any]) -> RawResponse:
+        """Uses Ollama's own chat API rather than the OpenAI-compatible one: only there can
+        the context window be set (the default is too small for FLINS's prompt plus a model's
+        thinking, which cut reasoning answers off) and thinking be switched per call."""
         await self.models.use(prompt.model)
-        return await super().complete(prompt=prompt, user=user, schema=schema)
+        thinking = prompt.effort in THINKING_EFFORTS
+        body: dict[str, Any] = {
+            "model": prompt.model,
+            "messages": [
+                {"role": "system", "content": prompt.system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+            "format": schema,  # the answer is constrained to this JSON schema
+            "think": thinking,
+            "keep_alive": LOCAL_KEEP_ALIVE,
+            "options": {
+                # The same window for every call: Ollama reloads a model when it changes.
+                "num_ctx": LOCAL_NUM_CTX,
+                # Low randomness for plain answers: at the default, a 4B model answered
+                # "25 times 4" with "two and a half thousand". Thinking keeps the default.
+                **({} if thinking else {"temperature": LOCAL_TEMPERATURE}),
+                "num_predict": LOCAL_THINKING_TOKENS
+                if thinking
+                else max(prompt.max_tokens, self._spec.min_max_tokens),
+            },
+        }
+        data = await self._chat(body)
+        if data.get("__no_think__"):  # a model without a thinking mode: ask again plainly
+            body.pop("think")
+            data = await self._chat(body)
+        message = data.get("message") or {}
+        content = message.get("content") or ""
+        return RawResponse(
+            text=extract_json(content) if isinstance(content, str) else "",
+            model=str(data.get("model") or prompt.model),
+            stop_reason="max_tokens" if data.get("done_reason") == "length" else "end_turn",
+            input_tokens=int(data.get("prompt_eval_count") or 0),
+            output_tokens=int(data.get("eval_count") or 0),
+            provider=self.name,
+        )
+
+    async def _chat(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            resp = await self.models.post("/api/chat", body)
+        except httpx.TimeoutException as exc:
+            raise LLMError("local model timed out") from exc
+        except httpx.HTTPError as exc:
+            raise LLMError("local model not reachable (is Ollama running?)") from exc
+        if resp.status_code == 200:
+            data = resp.json()
+            if not isinstance(data, dict):
+                raise LLMError("unexpected response shape")
+            return data
+        detail = _error_detail(resp)
+        if resp.status_code == 400 and "think" in detail.lower() and "think" in body:
+            return {"__no_think__": True}
+        if resp.status_code == 404:
+            raise LLMError(f"local model not downloaded: {detail}")
+        raise LLMError(f"HTTP {resp.status_code}: {detail}")
 
 
 def make_backend(spec: ProviderSpec, key: str | None) -> Backend:

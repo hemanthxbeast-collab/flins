@@ -402,6 +402,14 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
         voice_loop = None
         if voice or settings.app.voice.enabled:
             voice_loop, hotkey = await _start_voice(settings, assistant, bus, conn)
+            if voice_loop is not None:
+                spoken = voice_loop
+
+                async def one_moment(source: str) -> None:
+                    if source == "voice":
+                        await spoken.say("One moment.")
+
+                assistant.on_wait = one_moment
         _attach_printers(bus)
         dashboard = _dashboard_server(settings, assistant)
         dashboard_task = asyncio.create_task(dashboard.serve())

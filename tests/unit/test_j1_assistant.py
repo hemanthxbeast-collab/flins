@@ -153,6 +153,13 @@ async def test_free_form_command_still_confirms_before_acting(rig: Rig) -> None:
     assert "chat" not in rig.jobs()
 
 
+async def test_a_stray_yes_or_no_is_never_guessed_into_a_command(rig: Rig) -> None:
+    rig.answers(intent=intent("stop"), chat=chat("No to what?", "clarify"))  # a wrong model
+    assert await rig.say("no", source="cli") == "No to what?"
+    assert await rig.say("Yes.", source="voice") == "No to what?"
+    assert rig.modes.state.mode == Mode.NORMAL and "intent" not in rig.jobs()
+
+
 # ---------------------------------------------------------------------- conversation
 
 
