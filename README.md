@@ -3,7 +3,7 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.11.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.11.1. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
 assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1 and 2 of 9 done).

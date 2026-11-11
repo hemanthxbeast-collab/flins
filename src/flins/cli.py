@@ -902,6 +902,60 @@ def cmd_memory(root: Path | None, action: str, rest: list[str]) -> int:
     return asyncio.run(_memory(settings, action, rest))
 
 
+async def _local(settings: Settings, action: str) -> int:
+    """`flins local`: the models running on this PC (Ollama)."""
+    from flins.llm.local import LocalModels
+    from flins.wiring import provider_specs, routes
+
+    specs, _ = provider_specs(settings)
+    local = [s for s in specs.values() if s.local and s.base_url]
+    if not local:
+        print("No local provider is configured.")
+        return 1
+    role_routes, _ = routes(settings)
+    for spec in local:
+        assert spec.base_url is not None
+        models = LocalModels(spec.base_url)
+        version = await models.version()
+        if version is None:
+            print(f"{spec.name}: not running. Start Ollama (Start menu), then try again.")
+            return 1
+        if action == "unload":
+            gone = await models.unload_all()
+            print(f"Unloaded: {', '.join(gone) or 'nothing was loaded'}.")
+            continue
+        print(f"{spec.name} {version} at {spec.base_url}")
+        installed = await models.installed()
+        loaded = {m.name: m for m in await models.loaded()}
+        for m in sorted(installed, key=lambda m: m.name):
+            state = ""
+            if m.name in loaded:
+                on = loaded[m.name]
+                where = (
+                    "all in video memory"
+                    if on.vram_gb >= on.size_gb * 0.98
+                    else (f"{on.vram_gb:.1f} GB in video memory, the rest in RAM (slower)")
+                )
+                state = f"   LOADED: {on.size_gb:.1f} GB, {where}"
+            print(f"  {m.name:<28} {m.size_gb:>5.1f} GB on disk{state}")
+        if not installed:
+            print("  no models downloaded yet (e.g. ollama pull qwen3.5:4b)")
+        names = {m.name for m in installed}
+        for role, chain in sorted(role_routes.items()):
+            for r in chain:
+                if r.provider == spec.name:
+                    ok = "" if r.model in names else "   NOT DOWNLOADED"
+                    print(f"  {role:<8} uses {r.model}{ok}")
+    return 0
+
+
+def cmd_local(root: Path | None, action: str) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_local(settings, action))
+
+
 def cmd_ask(root: Path | None, text: str, *, interactive: bool) -> int:
     settings = _load(root)
     if settings is None:
@@ -1193,6 +1247,8 @@ def build_parser() -> argparse.ArgumentParser:
     chat = sub.add_parser("chat", help="talk to FLINS in this terminal (or --history / --clear)")
     chat.add_argument("--history", action="store_true", help="show recent conversation turns")
     chat.add_argument("--clear", action="store_true", help="delete all stored conversation")
+    loc = sub.add_parser("local", help="local AI models on this PC (Ollama): status, unload")
+    loc.add_argument("action", nargs="?", default="status", choices=["status", "unload"])
     mem = sub.add_parser(
         "memory", help="what FLINS remembers: list, add <text>, forget <n>, edit <n> <text>, ..."
     )
@@ -1277,6 +1333,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_live(root, spawn=not args.no_spawn, brain=False)
     if args.command == "run":
         return cmd_live(root, spawn=not args.no_spawn, brain=True, voice=args.voice)
+    if args.command == "local":
+        return cmd_local(root, args.action)
     if args.command == "memory":
         return cmd_memory(root, args.action, args.rest)
     if args.command == "ask":

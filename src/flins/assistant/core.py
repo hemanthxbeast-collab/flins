@@ -59,6 +59,18 @@ BUDGET = "Today's AI budget is used up, so I can only run commands until tomorro
 DECLINED = "The AI model declined to answer that one."
 
 
+def _has_word(low: str, cue: str) -> bool:
+    """`cue` as a whole word or phrase ("java" must not match "javascript", "api" not "capital")."""
+    i = low.find(cue)
+    while i != -1:
+        before = low[i - 1] if i else " "
+        after = low[i + len(cue)] if i + len(cue) < len(low) else " "
+        if not (before.isalnum() or before == "_") and not (after.isalnum() or after == "_"):
+            return True
+        i = low.find(cue, i + 1)
+    return False
+
+
 def ai_down(why: str) -> str:
     return (
         f"I couldn't get an answer from the AI model ({why}). "
@@ -184,9 +196,11 @@ class Assistant:
         """Cheap and fast by default; the reasoning model for long or planning-style requests.
         Voice always gets the fast one (you're waiting for it to speak)."""
         r = self._cfg.reasoning
-        if source == "voice":
+        if source == "voice" and not self._cfg.voice_big_models:
             return "chat"
         low = text.lower()
+        if "```" in text or any(_has_word(low, cue) for cue in self._cfg.coding.cues):
+            return "code"
         if len(text) >= r.min_chars or any(cue in low for cue in r.cues):
             return "reason"
         return "chat"

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.1: phase L groundwork, local models (2026-11-11)
+- **One local model in video memory at a time:** before a local (Ollama) model is used, FLINS
+  unloads any other loaded model (`llm/local.py`). Ollama answers are now constrained to the
+  JSON schema, with a longer timeout for the first call after a model switch.
+- **New `code` role** for programming questions (borrows from `reason` when not configured).
+  The core routes each message to `chat`, `reason` or `code`; `assistant.voice_big_models`
+  lets spoken questions use the bigger models too.
+- `flins local` shows Ollama's version, downloaded models, what's loaded and how much of it is
+  in video memory, and which roles use which model. `flins local unload` frees the memory.
+- First real test with `qwen3.5:4b` failed (empty answers after ~32 s of "thinking"), so local
+  models are **not switched on** yet: see docs/DECISIONS.md and docs/JARVIS_ARCHITECTURE.md §6.
+- Tests: 774 Python (6 new), 11 Node. Eval unchanged: 0 unsafe of 162.
+
 ## 0.11.0: JARVIS phase 2, memory (2026-11-11)
 - **FLINS remembers what you ask it to.** "Remember that …", "remember this", "forget that",
   "forget (everything) about X", "forget everything", "what do you remember (about X)", "why do

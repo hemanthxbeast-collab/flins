@@ -40,6 +40,7 @@ class ProviderConfig(_Strict):
     base_url: str | None = None
     key_env: str | None = None  # name of the environment variable that holds the key
     json_mode: Literal["json_schema", "json_object", "prompt"] | None = None
+    local: bool | None = None  # true = runs on this PC; one model kept loaded at a time
     reasoning_effort: bool | None = None
     min_max_tokens: int | None = Field(default=None, ge=256, le=65536)
     timeout_s: float | None = Field(default=None, gt=0, le=300)
@@ -58,7 +59,7 @@ class LLMConfig(_Strict):
     # triage / draft / redflag are needed for WhatsApp. intent, chat, reason and summary are
     # optional: without their own list they borrow another job's (see llm/providers.py).
     roles: dict[
-        Literal["triage", "draft", "redflag", "intent", "chat", "reason", "summary"],
+        Literal["triage", "draft", "redflag", "intent", "chat", "reason", "code", "summary"],
         list[RouteConfig],
     ] = Field(default_factory=dict)
 
@@ -135,6 +136,42 @@ class MemoryConfig(_Strict):
     pinned: int = Field(default=6, ge=0, le=50)  # of those, standing ones (preferences etc.)
 
 
+class CodingConfig(_Strict):
+    """When a message goes to the `code` model (checked before `reason`)."""
+
+    cues: list[str] = Field(
+        default_factory=lambda: [
+            "python",
+            "javascript",
+            "typescript",
+            "java",
+            "c++",
+            "rust",
+            "sql",
+            "html",
+            "css",
+            "regex",
+            "bash",
+            "powershell",
+            "git",
+            "numpy",
+            "pandas",
+            "function",
+            "compile",
+            "traceback",
+            "stack trace",
+            "exception",
+            "bug",
+            "debug",
+            "code",
+            "script",
+            "algorithm",
+            "syntax error",
+            "api",
+        ]
+    )
+
+
 class AssistantConfig(_Strict):
     """The conversational core (docs/JARVIS_ARCHITECTURE.md). Personality lives here, not in
     code: FLINS's name, how it talks, and when it may speak up in your self-chat."""
@@ -155,6 +192,10 @@ class AssistantConfig(_Strict):
     use_about_me: bool = True  # give the model your about_me.yaml facts
     max_facts: int = Field(default=40, ge=0, le=200)
     reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
+    coding: CodingConfig = Field(default_factory=CodingConfig)
+    # Voice normally uses the fast `chat` model. true = a spoken reasoning or coding question
+    # may use the bigger model (worth it with local models; slower to answer).
+    voice_big_models: bool = False
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
 

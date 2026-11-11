@@ -224,6 +224,9 @@ the reasoning model is loaded (the small model is unloaded first) → Piper spea
    `flins local setup` (writes the role list; downloads only with your approval), plus the
    existing `flins llm test`.
 
+### Status (2026-11-11)
+Built in 0.11.1: the `code` role, task routing, one-model-at-a-time unloading, schema-constrained Ollama output, `flins local`. Not done: verification with real models, `flins local setup`, the spoken "one moment", moving any WhatsApp job.
+
 ### Safety
 - WhatsApp jobs (`triage`, `draft`, `redflag`) stay on your current provider at first. They move
   to a local model only if `flins eval --live --provider ollama` shows 0 unsafe. The hard

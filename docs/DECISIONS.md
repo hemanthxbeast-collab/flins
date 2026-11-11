@@ -2,6 +2,27 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase L groundwork: local models (2026-11-11)
+Plan: `docs/JARVIS_ARCHITECTURE.md` §6.
+- **Unloading is explicit, not left to Ollama's defaults.** `LocalBackend` asks Ollama what is
+  loaded and unloads the others (`keep_alive: 0`) before each call to a different model. It
+  never raises: if Ollama can't be asked, the real request reports the problem.
+- **`code` is checked before `reason`**, by whole-word cues ("java" doesn't match
+  "javascript", "api" doesn't match "capital") or a code fence.
+- **Voice stays on the fast model unless `voice_big_models` is on.** Switching models costs
+  seconds; with cloud models that wait isn't worth it, with local ones it may be.
+- **WhatsApp jobs are not moved to local models here.** That needs a 0-unsafe live eval on the
+  local model first.
+- **First real test (qwen3.5:4b on Ollama 0.31.2): not usable yet.** The model loads fully into
+  video memory (3.1 GB), but each call took ~32 s and returned an empty answer: it spends the
+  whole token budget on "thinking" and never writes the JSON. Next step: turn thinking off for
+  the everyday model (Ollama's `think` / reasoning setting), read the answer from the right
+  field, and retest after updating Ollama. Until then keep `chat` on the cloud provider.
+- **Still open (not done in this change):** testing with real models (JSON reliability,
+  speed, whether "thinking" output needs switching off for the small model), a spoken "one
+  moment" before a model switch, `flins local setup`, a male Piper voice as the default
+  suggestion, and updating Ollama (0.31.2 installed; 0.40.16 offered).
+
 ## JARVIS phase 2: memory (2026-11-11)
 Plan: `docs/milestones/J2.md`.
 - **Writes are explicit or confirmed, never silent.** The model can only fill a `remember`

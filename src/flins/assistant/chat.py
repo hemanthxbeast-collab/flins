@@ -17,7 +17,7 @@ from flins.llm.context import neutralise
 from flins.llm.gateway import LLMGateway
 from flins.llm.prompts import Prompt
 
-Role = Literal["chat", "reason"]
+Role = Literal["chat", "reason", "code"]
 
 
 class ChatOut(BaseModel):
@@ -69,8 +69,9 @@ class ChatEngine:
 
     async def reply(self, context: str, role: Role = "chat") -> ChatOut:
         prompt = self._prompt
-        if role == "reason":  # same instructions, more thinking room, the stronger model
-            prompt = replace(prompt, effort="high", max_tokens=max(prompt.max_tokens, 4096))
+        if role in ("reason", "code"):  # same instructions, more room, the specialist model
+            effort = "high" if role == "reason" else "medium"
+            prompt = replace(prompt, effort=effort, max_tokens=max(prompt.max_tokens, 4096))
         return await self._gw.json(
             prompt=prompt, user=context, schema=CHAT_SCHEMA, out=ChatOut, role=role
         )

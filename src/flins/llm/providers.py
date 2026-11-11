@@ -18,6 +18,7 @@ from typing import Any, Literal
 import httpx
 
 from flins.llm.gateway import AnthropicBackend, Attempt, Backend, LLMError, RawResponse
+from flins.llm.local import LocalModels
 from flins.llm.prompts import Prompt
 
 JsonMode = Literal["json_schema", "json_object", "prompt"]
@@ -27,8 +28,15 @@ ROLES = ("triage", "draft", "redflag")  # needed for WhatsApp handling
 #   chat    (talking with you)              -> draft
 #   reason  (long / planning-style requests) -> chat -> draft
 #   summary (conversation summaries)        -> triage
-OPTIONAL_ROLES = ("intent", "chat", "reason", "summary")
-ROLE_FALLBACK = {"intent": "triage", "chat": "draft", "reason": "chat", "summary": "triage"}
+#   code    (programming questions)          -> reason -> chat -> draft
+OPTIONAL_ROLES = ("intent", "chat", "reason", "code", "summary")
+ROLE_FALLBACK = {
+    "intent": "triage",
+    "chat": "draft",
+    "reason": "chat",
+    "code": "reason",
+    "summary": "triage",
+}
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,7 @@ class ProviderSpec:
     reasoning_effort: bool = False  # send `reasoning_effort` (maps from the prompt's effort)
     min_max_tokens: int = 1024  # thinking models need room before the JSON starts
     timeout_s: float = 30.0  # per HTTP request
+    local: bool = False  # runs on this PC (Ollama): one model in video memory at a time
 
 
 BUILTIN_PROVIDERS: dict[str, ProviderSpec] = {
@@ -88,8 +97,10 @@ BUILTIN_PROVIDERS: dict[str, ProviderSpec] = {
         "openai_compat",
         "http://localhost:11434/v1",
         None,
-        "json_object",
+        "json_schema",  # Ollama constrains the answer to the schema
         min_max_tokens=2048,
+        timeout_s=180.0,  # the first call after a model switch loads several GB from disk
+        local=True,
     ),
 }
 
@@ -313,7 +324,30 @@ class ConfiguredRouter:
         ]
 
 
+class LocalBackend(OpenAICompatBackend):
+    """A provider on this PC. Before each call, other loaded models are unloaded so the one
+    being asked fits in video memory (llm/local.py)."""
+
+    def __init__(
+        self,
+        spec: ProviderSpec,
+        api_key: str | None,
+        *,
+        timeout_s: float = 180.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        super().__init__(spec, api_key, timeout_s=timeout_s, retries=0, transport=transport)
+        assert spec.base_url is not None
+        self.models = LocalModels(spec.base_url, transport=transport)
+
+    async def complete(self, *, prompt: Prompt, user: str, schema: dict[str, Any]) -> RawResponse:
+        await self.models.use(prompt.model)
+        return await super().complete(prompt=prompt, user=user, schema=schema)
+
+
 def make_backend(spec: ProviderSpec, key: str | None) -> Backend:
     if spec.kind == "anthropic":
         return AnthropicBackend(key, timeout_s=spec.timeout_s)
+    if spec.local:
+        return LocalBackend(spec, key, timeout_s=spec.timeout_s)
     return OpenAICompatBackend(spec, key, timeout_s=spec.timeout_s)

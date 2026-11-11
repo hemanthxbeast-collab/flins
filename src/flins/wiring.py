@@ -68,6 +68,7 @@ def provider_specs(settings: Settings) -> tuple[dict[str, ProviderSpec], list[st
             if cfg.reasoning_effort is None
             else cfg.reasoning_effort,
             min_max_tokens=cfg.min_max_tokens or base.min_max_tokens,
+            local=base.local if cfg.local is None else cfg.local,
             timeout_s=cfg.timeout_s or base.timeout_s,
         )
     return specs, problems

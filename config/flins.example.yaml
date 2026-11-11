@@ -55,8 +55,19 @@ llm:
     # reason:          # long or planning-style requests: your strongest model
     #   - {provider: anthropic, model: claude-sonnet-5-5}
     #   - {provider: groq, model: openai/gpt-oss-120b}
-    # A local model keeps your conversation on this PC:
-    #   - {provider: ollama, model: <a model you pulled>}
+    # code:            # programming questions (borrows from reason if left out)
+    #
+    # Local models (Ollama) keep your conversation on this PC and cost nothing per message.
+    # FLINS keeps only one of them in video memory at a time. Download each once with
+    # `ollama pull <name>`, check with `uv run flins local`, then for example:
+    # intent:  [{provider: ollama, model: "qwen3.5:4b"}]
+    # chat:    [{provider: ollama, model: "qwen3.5:4b"}]          # everyday talk and voice
+    # summary: [{provider: ollama, model: "qwen3.5:4b"}]
+    # reason:  [{provider: ollama, model: "qwen3.5:9b"}]          # logic, planning, maths
+    # code:    [{provider: ollama, model: "qwen2.5-coder:7b"}]    # coding questions
+    # Add a cloud entry after a local one to fall back to it when the local model fails.
+    # Keep triage / draft / redflag (WhatsApp) on a provider that passes
+    # `uv run flins eval --live --provider <name>` with 0 unsafe.
 
   # Optional: tweak a built-in provider or add any OpenAI-compatible one.
   # providers:
@@ -88,6 +99,8 @@ assistant:
     suggest_cooldown_minutes: 10  # at most one such question in this many minutes
     max_in_context: 16          # memories the model sees per message
     pinned: 6                   # of those, your standing preferences
+  voice_big_models: false       # true = spoken reasoning / coding questions may use the
+                                # bigger models (sensible with local models; slower to answer)
   reasoning:                    # when to use the `reason` model instead of `chat`
     min_chars: 280
     cues: [plan, step by step, compare, pros and cons, trade-off, debug, design, strategy,
