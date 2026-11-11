@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.14.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.15.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models and 3 done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3 and 4a done).
 
 ## Talk to FLINS
 ```powershell
@@ -117,6 +117,39 @@ vague, it asks one question instead of guessing.
 ```powershell
 uv run flins plans                      # list   (show <n>, delete <n>)
 ```
+
+## Tools
+When a question needs it, FLINS uses a tool instead of guessing. You just ask normally:
+"what's 1499 a month over a year with 18% tax?", "how many days until 25 December?",
+"what time is it in Tokyo?", "note down that the lab report is due on the 20th",
+"what do my notes say about the lab report?", "find my thermodynamics formula sheet".
+
+| Tool | What it does | Risk |
+|---|---|---|
+| `calculator` | exact arithmetic (no more mental-maths mistakes) | read |
+| `date_math` | time in another timezone, days between dates, a date N days / weeks / months away, weekday of a date | read |
+| `notes_read` | reads or searches your notes file (`data/notes.md`) | read |
+| `note_add` | adds a note. **Always shows you the exact text and asks yes / no first** | write |
+| `files_list`, `files_search`, `files_read` | read-only access to text files in folders you approve | private |
+
+How it stays safe:
+- The AI model can only *ask* for a tool. FLINS's code checks the request and runs it. No tool
+  can send a message, set a reminder, change a mode or go online.
+- **File access is off until you list folders** under `assistant.tools.folders` in
+  `config/flins.yaml`. It can't leave those folders, skips hidden files, and refuses key,
+  password and credential files, non-text files and large files. FLINS's own `data/` folder and
+  `.env` are never readable. Nothing is ever written, moved or deleted.
+- What a file says is treated as data: after reading one, FLINS can't use another tool or
+  suggest a memory in that turn, so text inside a file can't make it do something.
+- What it reads from a file is sent to the AI model that answers (a cloud provider unless your
+  chat model is local). Only approve folders you're comfortable with.
+- A tool turn takes two model calls instead of one, so it is a little slower.
+
+```powershell
+uv run flins tools                                  # what is on, and each tool's risk
+uv run flins tools run calculator "15% of 240"      # try one directly
+```
+Settings: `assistant.tools` (`enabled`, `allow`, `folders`, `max_rounds`).
 
 ## Voice
 ```powershell
@@ -349,4 +382,4 @@ npm --prefix wa-sidecar test
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
 [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core), 2 (memory), L (local
-models) and 3 (tasks, reminders and planning) are done; next is phase 4 (tools).
+models), 3 (tasks, reminders and planning) and 4a (tools: calculator, dates, notes, files) are done; next is 4b (online tools: weather, search, GitHub).

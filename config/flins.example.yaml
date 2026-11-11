@@ -100,6 +100,15 @@ assistant:
     suggest_cooldown_minutes: 10  # at most one such question in this many minutes
     max_in_context: 16          # memories the model sees per message
     pinned: 6                   # of those, your standing preferences
+  tools:                        # what FLINS may use to answer you (it can only read; the
+    enabled: true               # one tool that writes, note_add, always asks you first)
+    allow: [calculator, date_math, notes_read, note_add, files_list, files_search, files_read]
+    folders: []                 # folders it may read TEXT files from, e.g.
+                                #   ["C:/Users/you/Documents/Notes"]. Empty = no file access.
+                                # What it reads is sent to the AI model that answers the turn
+                                # (a cloud provider, unless your chat model is local).
+    max_file_kb: 200
+    max_rounds: 2               # tool uses per message
   voice_big_models: false       # true = spoken reasoning / coding questions may use the
                                 # bigger models (sensible with local models; slower to answer)
   reasoning:                    # when to use the `reason` model instead of `chat`

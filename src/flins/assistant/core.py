@@ -29,6 +29,7 @@ from flins.assistant.models import SOURCES, MemoryItem, Reply, Route
 from flins.assistant.plans import PlanCommands
 from flins.assistant.task_commands import TaskCommands
 from flins.assistant.tasks import TaskStore
+from flins.assistant.tools import Tool, ToolBox, result_block
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock
@@ -56,6 +57,7 @@ CANT = (
     "reminders and tasks ('remind me to … at 7'), plans ('make a plan to …'), and "
     "remembering things ('remember that …')."
 )
+CANT_TOOL = "I couldn't look that up: the tool it needs isn't available here."
 NO_AI = (
     "I can only run commands right now, because no AI model is set up (see `flins llm status`). "
     "Try 'working mood till 6', 'status' or 'stop'."
@@ -118,6 +120,7 @@ class Assistant:
         tasks: TaskStore | None = None,
         task_commands: TaskCommands | None = None,
         plan_commands: PlanCommands | None = None,
+        tools: ToolBox | None = None,
     ) -> None:
         self._commands = commands
         self._store = store
@@ -135,6 +138,7 @@ class Assistant:
         self._tasks = tasks
         self._task_cmds = task_commands
         self._plan_cmds = plan_commands
+        self._tools = tools if tools is not None and cfg.tools.enabled else None
         self._last_used: dict[str, list[MemoryItem]] = {}  # per channel: memories last shown
         self._last_suggest: datetime | None = None
         # Called with the channel just before a slower model (reasoning / coding) is asked,
@@ -252,13 +256,49 @@ class Assistant:
                 await self.on_wait(source)
             except Exception:  # a courtesy only: never let it block the answer
                 stages.append("wait notice failed")
-        try:
-            out = await self._chat.reply(context, role)
-        except LLMRefusal:
-            return Reply(DECLINED, "error", [*stages, "refused"], role)
-        except LLMError as exc:
-            return Reply(ai_down(str(exc)[:120]), "error", [*stages, "model failed"], role)
-        flagged = self._check(out)
+        # The model answers, or asks for a tool. A tool request is checked and run by code
+        # (never by the model), its result goes back as data, and the model answers with it.
+        used = 0
+        tainted = False  # a tool returned outside content (a file): no more tools this turn
+        while True:
+            try:
+                out = await self._chat.reply(context, role)
+            except LLMRefusal:
+                return Reply(DECLINED, "error", [*stages, "refused"], role)
+            except LLMError as exc:
+                return Reply(ai_down(str(exc)[:120]), "error", [*stages, "model failed"], role)
+            if not (out.tool or "").strip():
+                break
+            tool = self._tools.get(out.tool) if self._tools else None
+            if tool is None:
+                stages.append("tool not available")
+                break
+            if tainted or used >= self._cfg.tools.max_rounds:
+                stages.append("tool refused: outside content" if tainted else "tool limit")
+                break
+            arg = (out.tool_input or "").strip()
+            if tool.risk == "write":
+                # Never on the model's word: you see the exact content and say yes or no.
+                return Reply(
+                    self._confirm_tool(tool, arg, source),
+                    "chat",
+                    [*stages, f"tool:{tool.name}", "asked first"],
+                    role,
+                )
+            ran = await self._tools.run(tool, arg, now) if self._tools else None
+            assert ran is not None
+            used += 1
+            tainted = tainted or tool.outside_content
+            stages.append(f"tool:{tool.name}" + ("" if ran.result.ok else " failed"))
+            await self._audit_tool(tool, source, ran.result.ok, ran.ms, len(arg), ran.result.text)
+            context = f"{context}\n{result_block(ran, arg)}"
+        if not out.reply.strip() and (out.tool or "").strip():
+            # It asked for a tool it couldn't have and gave no answer of its own.
+            return Reply(CANT_TOOL, "chat", [*stages, "no answer"], role)
+        if tainted:
+            # What a file says must not turn into a saved memory.
+            out = out.model_copy(update={"remember": None})
+        flagged = self._check(out, used_tool=used > 0)
         if flagged:
             # The model said it did or will remember something. It can't, so its words are
             # dropped. If what it wanted was to keep a fact, ask you instead (the honest
@@ -333,6 +373,7 @@ class Assistant:
             earlier=session.earlier,
             turns=await self._store.recent(session, self._cfg.history_turns),
             tasks=await self._task_lines(now),
+            tools=self._tools.lines() if self._tools else [],
         )
 
     async def _task_lines(self, now: datetime) -> list[str]:
@@ -342,14 +383,47 @@ class Assistant:
             return []
         return [t.line(now, self._tasks.tz) for t in (await self._tasks.open())[:MAX_TASK_LINES]]
 
+    def _confirm_tool(self, tool: Tool, arg: str, source: str) -> str:
+        """A write tool: show exactly what would be written; it runs only on your yes."""
+        assert self._tools is not None
+        box = self._tools
+
+        async def run() -> str:
+            ran = await box.run(tool, arg, self._clock.now())
+            await self._audit_tool(tool, source, ran.result.ok, ran.ms, len(arg), ran.result.text)
+            return ran.result.text
+
+        question = tool.confirm(arg) if tool.confirm else f"Run {tool.name} with '{arg[:200]}'?"
+        return self._commands.confirm(source, question, run)
+
+    async def _audit_tool(
+        self, tool: Tool, source: str, ok: bool, ms: int, chars_in: int, result: str
+    ) -> None:
+        """One row per tool run: which tool, not what it was given or what it returned."""
+        await self._audit.record(
+            "assistant",
+            "assistant.tool",
+            {
+                "tool": tool.name,
+                "risk": tool.risk,
+                "source": source,
+                "ok": ok,
+                "ms": ms,
+                "chars_in": chars_in,
+                "chars_out": len(result),
+            },
+        )
+
     @staticmethod
-    def _check(out: ChatOut) -> str | None:
-        """Result validation: the model can't act, so it must not say it did."""
+    def _check(out: ChatOut, *, used_tool: bool = False) -> str | None:
+        """Result validation: the model can't act, so it must not say it did. After a tool
+        really ran, its own "I did something" report is true (it looked something up), so only
+        the wording check applies."""
         if not out.reply.strip():
             return "empty reply"
         if ACTION_CLAIM.search(out.reply):
             return "claims an action"
-        if out.claims_action and out.kind != "cannot":
+        if out.claims_action and out.kind != "cannot" and not used_tool:
             return "model reported claiming an action"
         return None
 

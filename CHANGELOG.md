@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.15.0: phase 4a, tools (2026-11-11)
+- **FLINS can use tools to answer you.** The conversation model may ask for a tool; code checks
+  the name against the allowed list, applies the risk gate, runs it and hands the result back
+  as data. No extra model call on turns that need no tool; at most 2 tool uses per message.
+- **calculator**: exact arithmetic with a hand-written evaluator (no `eval`): operators,
+  brackets, percent, sqrt / log / trig, pi, e; size limits.
+- **date_math**: now in a timezone, days between dates, add days / weeks / months / years,
+  weekday of a date.
+- **Notes**: `note_add` appends to `data/notes.md` only after you confirm the exact text;
+  `notes_read` shows or searches it. Secrets are refused.
+- **Files** (off by default): list, search and read text files in folders you approve. Paths
+  are resolved before the check; hidden, credential, binary and oversized files are refused;
+  FLINS's own `data/` and `.env` are never readable; nothing is written.
+- **Outside content rule**: after a file is read, that turn can't use another tool or suggest a
+  memory, and the content is neutralised and labelled as data.
+- Risk levels `read` / `private` / `write`; write tools never run without your yes.
+- `flins tools` (list, run); config `assistant.tools`; prompt `chat_v5`; audit rows
+  `assistant.tool` record which tool ran, never its input or output.
+- Live check (cloud fallback; Ollama was not running): the model chose calculator, date_math
+  and no tool correctly on four questions.
+- Tests: 914 Python (69 new, 1 skipped here: symlinks need admin on Windows), 11 Node. Eval
+  unchanged: 0 unsafe of 162.
+
 ## 0.14.0: phase 3b, planning (2026-11-11)
 - **Plans.** "make a plan to prepare for my physics exam" proposes 2–8 ordered steps and asks
   "Save this plan?". Only "yes" saves it; each step then becomes a task.

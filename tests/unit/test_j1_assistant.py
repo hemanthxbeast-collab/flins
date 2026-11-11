@@ -203,6 +203,7 @@ async def test_context_has_identity_state_and_time_but_no_hardcoded_person(rig: 
         "chat_v2.md",
         "chat_v3.md",
         "chat_v4.md",
+        "chat_v5.md",
         "plan_v1.md",
         "summary_v1.md",
     ):
@@ -459,7 +460,11 @@ async def test_long_or_planning_requests_use_the_reasoning_model(rig: Rig) -> No
 async def test_every_turn_is_audited_without_its_text(rig: Rig) -> None:
     await rig.say("a very private question about zebras", source="cli")
     row = (await rig.audit("assistant.turn"))[-1]
-    assert row["route"] == "chat" and row["source"] == "cli" and row["prompt"] == "chat_v4"
+    assert (
+        row["route"] == "chat"
+        and row["source"] == "cli"
+        and row["prompt"] == load_prompt(PROMPTS, "chat").version
+    )
     assert row["chars_in"] == len("a very private question about zebras")
     assert "zebras" not in json.dumps(row)
 

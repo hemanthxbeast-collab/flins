@@ -46,6 +46,7 @@ from flins.settings import Settings, find_root, load_settings
 from flins.skills import admin as skills_admin
 from flins.web.app import create_app
 from flins.wiring import (
+    all_tools,
     build_router,
     conversation_store,
     make_assistant,
@@ -55,6 +56,7 @@ from flins.wiring import (
     open_assistant,
     plan_store,
     task_store,
+    tool_box,
 )
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
@@ -1011,6 +1013,40 @@ def cmd_plans(root: Path | None, action: str, rest: list[str]) -> int:
     return asyncio.run(_plans(settings, action, rest))
 
 
+def cmd_tools(root: Path | None, action: str, rest: list[str]) -> int:
+    """`flins tools`: what FLINS may use to answer you, and a way to try one."""
+    settings = _load(root)
+    if settings is None:
+        return 1
+    cfg = settings.app.assistant.tools
+    box = tool_box(settings)
+    if action == "list":
+        if not cfg.enabled:
+            print("Tools are off (assistant.tools.enabled: false).")
+        for t in all_tools(settings):
+            state = "on " if box.get(t.name) else "off"
+            asks = "  (asks you first)" if t.risk == "write" else ""
+            print(f"  [{state}] {t.name:<13} {t.risk:<8} {t.description}{asks}")
+        if not cfg.folders:
+            print(
+                "  File tools are off: no folders are approved. Add some under "
+                "assistant.tools.folders in config/flins.yaml."
+            )
+        return 0
+    if not rest:
+        print(
+            'Usage: flins tools run <name> "<input>"   e.g. flins tools run calculator "15% of 240"'
+        )
+        return 2
+    tool = box.get(rest[0])
+    if tool is None:
+        print(f"There's no tool '{rest[0]}' switched on. See: flins tools")
+        return 1
+    ran = asyncio.run(box.run(tool, " ".join(rest[1:]), SystemClock().now()))
+    print(ran.result.text)
+    return 0 if ran.result.ok else 1
+
+
 def cmd_tasks(root: Path | None, action: str, rest: list[str]) -> int:
     settings = _load(root)
     if settings is None:
@@ -1387,6 +1423,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tsk.add_argument("action", nargs="?", default="list", choices=["list", "add", "done", "delete"])
     tsk.add_argument("rest", nargs="*")
+    tls = sub.add_parser("tools", help='tools FLINS can use: list, run <name> "<input>"')
+    tls.add_argument("action", nargs="?", default="list", choices=["list", "run"])
+    tls.add_argument("rest", nargs="*")
     pln = sub.add_parser("plans", help="plans in progress: list, show <n>, delete <n>")
     pln.add_argument("action", nargs="?", default="list", choices=["list", "show", "delete"])
     pln.add_argument("rest", nargs="*")
@@ -1471,6 +1510,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_memory(root, args.action, args.rest)
     if args.command == "tasks":
         return cmd_tasks(root, args.action, args.rest)
+    if args.command == "tools":
+        return cmd_tools(root, args.action, args.rest)
     if args.command == "plans":
         return cmd_plans(root, args.action, args.rest)
     if args.command == "ask":

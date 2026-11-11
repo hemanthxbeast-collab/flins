@@ -179,6 +179,29 @@ class CodingConfig(_Strict):
     )
 
 
+class ToolsConfig(_Strict):
+    """Tools FLINS may use to answer you (docs/milestones/J4.md). The model can only ask for
+    a tool; code runs it. Write tools always ask you first."""
+
+    enabled: bool = True
+    allow: list[str] = Field(
+        default_factory=lambda: [
+            "calculator",
+            "date_math",
+            "notes_read",
+            "note_add",
+            "files_list",
+            "files_search",
+            "files_read",
+        ]
+    )
+    # Folders FLINS may read text files from. Empty = the file tools don't exist. What it
+    # reads is sent to whichever AI model answers that turn.
+    folders: list[Path] = Field(default_factory=list, max_length=20)
+    max_file_kb: int = Field(default=200, ge=1, le=2000)
+    max_rounds: int = Field(default=2, ge=1, le=3)  # tool uses per message
+
+
 class AssistantConfig(_Strict):
     """The conversational core (docs/JARVIS_ARCHITECTURE.md). Personality lives here, not in
     code: FLINS's name, how it talks, and when it may speak up in your self-chat."""
@@ -204,6 +227,7 @@ class AssistantConfig(_Strict):
     # may use the bigger model (worth it with local models; slower to answer).
     voice_big_models: bool = False
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
 
 class AppConfig(_Strict):

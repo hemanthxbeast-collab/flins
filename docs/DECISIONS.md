@@ -2,6 +2,32 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 4a: tools (2026-11-11)
+- **The model asks, code runs.** `tool` / `tool_input` are two more fields in the chat JSON.
+  This keeps one model call for ordinary turns (a separate "which tool?" call would have added
+  one to every turn) and keeps the decision in code: unknown, disallowed, over-limit and
+  write requests are all handled before anything executes.
+- **One string in, text out.** Small local models fill a single string far more reliably than
+  a nested argument object, and strict JSON schemas stay simple.
+- **Built-in tools run in-process.** They are small reviewed code in this repo with no
+  subprocess, network or write access (except the append-only notes file). The skill sandbox
+  stays the path for third-party and generated code (phase 8).
+- **Split into 4a / 4b.** Weather, web search and GitHub need a provider, network access and
+  sometimes a key: those are the user's choices, and they add a way for text to leave the PC.
+- **Taint rule.** After a tool returns outside content (a file), no further tool call and no
+  memory suggestion in that turn. With only local tools there is no exfiltration path today;
+  the rule is in place before online tools exist, when it starts to matter.
+- **A real lookup may be reported.** After a tool ran, the model's `claims_action: true` no
+  longer replaces the reply (it did do something); the wording check for sent / set / saved
+  claims still applies.
+- **File contents go to the answering model.** Stated in the README and the config comment;
+  folders are opt-in. A "local model only" switch for file tools is a possible later addition.
+- **Not tested here:** the symlink-escape test skips on this machine (creating links needs
+  admin on Windows). The check itself is the same resolve-then-compare used for `..`.
+- **Found while testing live:** with Ollama stopped, every model call waits ~4.5 s for the
+  local attempt before falling back, and a tool turn has two calls. Worth a short "local is
+  down" memory in the gateway; not changed in this phase.
+
 ## Phase 3b: planning (2026-11-11)
 - **A plan step is a task.** `tasks.plan_id` + `step_no` instead of a separate steps table:
   reminders, "done with …", the list, the CLI and the dashboard work on steps unchanged.

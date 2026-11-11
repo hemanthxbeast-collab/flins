@@ -40,6 +40,7 @@ class TurnContext:
     earlier: str | None  # summary of the previous session
     turns: list[Turn]
     tasks: list[str] = field(default_factory=list)  # open tasks, soonest first
+    tools: list[str] = field(default_factory=list)  # tools the model may ask for
 
 
 class ContextBuilder:
@@ -86,6 +87,9 @@ class ContextBuilder:
         if c.tasks:
             lines = [f"- {_clip(t, 260)}" for t in c.tasks]
             blocks.append("<tasks>\n" + "\n".join(lines) + "\n</tasks>")
+        if c.tools:
+            lines = [f"- {_clip(t, 500)}" for t in c.tools]
+            blocks.append("<tools>\n" + "\n".join(lines) + "\n</tools>")
         if c.earlier:
             blocks.append(
                 f"<earlier_conversation>\n{_clip(c.earlier, 1500)}\n</earlier_conversation>"

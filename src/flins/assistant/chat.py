@@ -31,6 +31,10 @@ class ChatOut(BaseModel):
     remember: str | None = Field(default=None, max_length=400)
     remember_kind: Literal["semantic", "episodic", "relationship"] | None = None
     remember_importance: float | None = Field(default=None, ge=0, le=1)
+    # A request to use a tool. The model can't run anything: the core checks the name
+    # against the allowed tools, applies the risk gate and runs it (or doesn't).
+    tool: str | None = Field(default=None, max_length=40)
+    tool_input: str | None = Field(default=None, max_length=2000)
 
 
 CHAT_SCHEMA: dict[str, Any] = {
@@ -45,6 +49,8 @@ CHAT_SCHEMA: dict[str, Any] = {
             "enum": ["semantic", "episodic", "relationship", None],
         },
         "remember_importance": {"type": ["number", "null"]},
+        "tool": {"type": ["string", "null"]},
+        "tool_input": {"type": ["string", "null"]},
     },
     "required": [
         "reply",
@@ -53,6 +59,8 @@ CHAT_SCHEMA: dict[str, Any] = {
         "remember",
         "remember_kind",
         "remember_importance",
+        "tool",
+        "tool_input",
     ],
     "additionalProperties": False,
 }

@@ -18,6 +18,11 @@ from flins.assistant.memory_commands import MemoryCommands
 from flins.assistant.plans import PlanCommands, Planner, PlanStore
 from flins.assistant.task_commands import TaskCommands
 from flins.assistant.tasks import TaskStore
+from flins.assistant.tools import Tool, ToolBox
+from flins.assistant.tools.calc import CALCULATOR
+from flins.assistant.tools.dates import make_date_tool
+from flins.assistant.tools.files import Folders, make_file_tools
+from flins.assistant.tools.notes import make_note_tools
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock, SystemClock
@@ -207,6 +212,32 @@ def task_store(settings: Settings, conn: aiosqlite.Connection) -> TaskStore:
     return TaskStore(conn, ZoneInfo(settings.policy.user.timezone))
 
 
+def all_tools(settings: Settings) -> list[Tool]:
+    """Every built-in tool that exists with this config (file tools need approved folders)."""
+    cfg = settings.app.assistant.tools
+    tz = ZoneInfo(settings.policy.user.timezone)
+    folders = Folders(
+        [settings.path(f) for f in cfg.folders],
+        max_kb=cfg.max_file_kb,
+        deny=[settings.data_dir, settings.root / ".env"],  # never FLINS's own data or secrets
+    )
+    return [
+        CALCULATOR,
+        make_date_tool(tz),
+        *make_note_tools(settings.data_dir / "notes.md", tz),
+        *make_file_tools(folders),
+    ]
+
+
+def tool_box(settings: Settings) -> ToolBox:
+    """The tools the assistant may use: built-ins that are on the allow list."""
+    cfg = settings.app.assistant.tools
+    if not cfg.enabled:
+        return ToolBox([])
+    allowed = {name.strip().lower() for name in cfg.allow}
+    return ToolBox([t for t in all_tools(settings) if t.name in allowed])
+
+
 def plan_store(settings: Settings, conn: aiosqlite.Connection) -> PlanStore:
     return PlanStore(conn, task_store(settings, conn))
 
@@ -251,6 +282,7 @@ def make_assistant(
         tasks=tasks,
         task_commands=TaskCommands(tasks, commands),
         plan_commands=PlanCommands(PlanStore(conn, tasks), tasks, commands, planner),
+        tools=tool_box(settings),
     )
 
 
