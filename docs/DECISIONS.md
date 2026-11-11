@@ -2,6 +2,40 @@
 
 Short records of choices made while building. Newest first.
 
+## JARVIS phase 1: assistant core (2026-11-11)
+Plan and target architecture: `docs/JARVIS_ARCHITECTURE.md`.
+- **The core wraps the router; it doesn't replace it.** `CommandRouter` keeps all command
+  behaviour (and its tests). A `conversational` flag makes it return "not a command" instead of
+  the help text, so the core can talk. Without the flag it behaves exactly as before.
+- **Two model calls per spoken sentence** (intent on the small model, then chat): ~1.1–1.4 s on
+  Groq in a live test. Merging them into one call would be faster but would tie command
+  understanding to the chat prompt; left for the voice phase.
+- **The conversation model gets no tools, and may not claim actions.** Checked twice: the model
+  reports `claims_action`, and a regex catches "I've set / I'll remember / Done." even if it
+  doesn't. A flagged reply is replaced, never shown or stored. An honest "I can't do that yet"
+  (kind `cannot`) is kept.
+- **Self-chat default is `addressed`.** The spec wants natural conversation everywhere, but the
+  "Message yourself" chat is also a notes app; answering every note would be noisy and would
+  store notes as conversation. Addressing FLINS by name opens a 3-minute window. Command replies
+  don't open it. (Unaddressed notes still pass through the intent model, as they did since M6.)
+- **Processes without `flins run` can't send.** `flins ask`, `flins chat` and the standalone
+  dashboard build the core with `can_send=False` and no approvals: nothing may sit in the outbox
+  and go out hours later.
+- **All about_me facts are available to the conversation**, whatever their `share_with` (that
+  field is about other people; here you are the one asking). They go to the `chat` provider;
+  `assistant.use_about_me: false` turns that off, and a local model can be the `chat` role.
+- **One conversation across channels**, split into sessions by a 30-minute quiet gap. A new
+  session starts with the previous summary, not the old turns. Turns are pruned after
+  `keep_days` (30) and `flins chat --clear` deletes everything.
+- **Contact messages never enter the conversation context** in this phase. "What did Rahul
+  say?" needs a read-only, neutralised view of WhatsApp data and is planned for phase 6.
+- **Role routing is deliberately simple:** `reason` for messages over 280 characters or with a
+  planning cue word; both configurable. Voice always uses `chat`.
+- Known debt, unchanged here: `prompts/intent_v1.md` still names the user in its text.
+- **Live check (Groq, on a database copy):** follow-ups resolved, a self-chat note was ignored,
+  reminder and weather requests were declined honestly, a focus request asked for confirmation,
+  a planning request used the reasoning route (4.9 s).
+
 ## 0.9.1: triage, times, Piper, pairing (2026-11-08)
 - **Health/legal is a hard rule now, not only an AI judgement.** Live testing showed Groq
   missing "results came back, call when you can". Invariant 7 says such messages are NOTIFY

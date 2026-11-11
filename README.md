@@ -3,9 +3,30 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** Milestone M6. FLINS handles WhatsApp while you're busy (holding replies by itself, real
-answers when you approve) and you can **talk to it**: by voice, or in plain words in your
-"Message yourself" chat.
+**Status:** 0.10.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+answers when you approve), and you can **talk to it** like an assistant: by voice, in your
+"Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phase 1 of 9 done).
+
+## Talk to FLINS
+```powershell
+uv run flins ask "what's 18% of 2400?"     # one question
+uv run flins chat                          # a conversation in the terminal
+uv run flins chat --history                # what's stored;  --clear deletes it
+```
+With `flins run` going, the same conversation continues by voice, on the dashboard's **Chat** page,
+and in your self-chat. It follows up naturally ("and divide that by 8?"), and the built-in
+commands still work in plain words ("I need to focus for two hours" → it asks, you say yes).
+
+- **In your self-chat, start with its name** ("FLINS, how do I…"). That chat is also where you keep
+  notes, so FLINS stays quiet unless you address it, and then keeps listening for 3 minutes.
+  Change this with `assistant.self_chat` in `config/flins.yaml`.
+- **What it can't do yet, it says so.** No reminders, tasks, memory, files or live data until
+  the later phases. It has no tools in conversation, and a reply that claims it did something is
+  replaced with an honest one.
+- **"stop" always works**, with or without an AI model.
+- Personality (name, concise/detailed, humour) is under `assistant:` in `config/flins.yaml`.
+  Conversation is stored only on this PC and deleted after 30 days.
 
 ## Voice
 ```powershell
@@ -236,4 +257,6 @@ npm --prefix wa-sidecar test
 ```
 
 ## Milestones
-See SPEC §14. Done: **M0**–**M9**. All planned milestones are built.
+See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
+[docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phase 1 (the assistant core) is done;
+phase 2 is memory.

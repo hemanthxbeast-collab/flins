@@ -55,9 +55,12 @@ class RouteConfig(_Strict):
 class LLMConfig(_Strict):
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
     # Per job, providers in order of preference. Missing jobs use the Anthropic defaults.
-    roles: dict[Literal["triage", "draft", "redflag"], list[RouteConfig]] = Field(
-        default_factory=dict
-    )
+    # triage / draft / redflag are needed for WhatsApp. intent, chat, reason and summary are
+    # optional: without their own list they borrow another job's (see llm/providers.py).
+    roles: dict[
+        Literal["triage", "draft", "redflag", "intent", "chat", "reason", "summary"],
+        list[RouteConfig],
+    ] = Field(default_factory=dict)
 
 
 class VoiceConfig(_Strict):
@@ -99,6 +102,49 @@ class BackupConfig(_Strict):
     daily: bool = True  # `flins run` makes one a day when FLINS_BACKUP_PASSPHRASE is set
 
 
+class ReasoningConfig(_Strict):
+    """When a message goes to the `reason` model instead of the faster `chat` model."""
+
+    min_chars: int = Field(default=280, ge=40)
+    cues: list[str] = Field(
+        default_factory=lambda: [
+            "plan",
+            "step by step",
+            "compare",
+            "pros and cons",
+            "trade-off",
+            "tradeoff",
+            "debug",
+            "design",
+            "strategy",
+            "explain why",
+            "in detail",
+        ]
+    )
+
+
+class AssistantConfig(_Strict):
+    """The conversational core (docs/JARVIS_ARCHITECTURE.md). Personality lives here, not in
+    code: FLINS's name, how it talks, and when it may speak up in your self-chat."""
+
+    enabled: bool = True
+    name: str = Field(default="FLINS", min_length=1, max_length=30)
+    style: Literal["concise", "balanced", "detailed"] = "concise"
+    humor: Literal["none", "light"] = "light"
+    notes: list[str] = Field(default_factory=list, max_length=20)  # extra personality notes
+    # Your "Message yourself" chat is also where you keep notes. addressed = FLINS only chats
+    # when you start with its name, or while a conversation with it is open; all = it answers
+    # everything you type there; off = commands only.
+    self_chat: Literal["addressed", "all", "off"] = "addressed"
+    follow_window_s: int = Field(default=180, ge=0, le=3600)
+    history_turns: int = Field(default=12, ge=2, le=60)  # recent turns the model sees
+    session_idle_minutes: int = Field(default=30, ge=1, le=24 * 60)
+    keep_days: int = Field(default=30, ge=1, le=3650)  # conversation turns are deleted after
+    use_about_me: bool = True  # give the model your about_me.yaml facts
+    max_facts: int = Field(default=40, ge=0, le=200)
+    reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
+
+
 class AppConfig(_Strict):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
@@ -107,6 +153,7 @@ class AppConfig(_Strict):
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     backup: BackupConfig = Field(default_factory=BackupConfig)
+    assistant: AssistantConfig = Field(default_factory=AssistantConfig)
 
 
 class ToneProfile(_Strict):

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0: JARVIS phase 1, the assistant core (2026-11-11)
+- **FLINS holds a conversation.** Everything you say to it, on any channel, now goes through one
+  core (`flins.assistant`): fixed commands first (no AI), then free-form commands with
+  confirmation, then a conversation model with context: who it is, who you are, the time, the
+  current mode, pending drafts, your about_me facts, a running summary and the last few turns.
+- New: `flins ask "<text>"`, `flins chat` (`--history`, `--clear`), and a **Chat** page on the
+  dashboard. Voice and self-chat use the same conversation.
+- Self-chat stays your notes app: FLINS only talks there when addressed by name, or for 3 minutes
+  after it answered (`assistant.self_chat: addressed | all | off`).
+- The conversation model has no tools. Replies that claim an action ("I've set a reminder") are
+  replaced with an honest "can't do that yet". Model failures and a used-up budget are said out
+  loud.
+- Personality in config (`assistant:` name, style, humour, notes). No personal details in prompts.
+- Model roles `chat`, `reason`, `intent`, `summary` (optional; they borrow from draft / triage).
+  Long or planning-style requests use `reason`; voice always uses the fast `chat` model.
+- Free-form commands now also work from the CLI and dashboard. `flins ask` and a dashboard without
+  `flins run` can change modes but never send or approve.
+- Migration 0011 (conversation sessions and turns; pruned after `assistant.keep_days`).
+- Fixed a dashboard test that depended on the real date.
+- Tests: 731 Python (37 new), 11 Node. Eval unchanged: 0 unsafe of 162.
+
 ## 0.9.1: Safer triage, IST times, Piper voice, QR pairing on the dashboard (2026-11-08)
 - **Health and legal messages are caught without the AI:** a built-in rule (doctor, medicines,
   test results, "reports are ready", fever, police, court, lawyer, legal notice, …) caps them at

@@ -23,6 +23,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from flins.adapters.sidecar_proc import Sidecar, SidecarSetupError
+from flins.assistant.core import Assistant
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.autonomy import auto_stats, set_optin
@@ -33,12 +34,14 @@ from flins.core.events import EventBus
 from flins.core.levels import Level
 from flins.core.modes import ModeManager
 from flins.core.policy_schema import Policy
+from flins.llm.gateway import Backend
 from flins.settings import Settings
 from flins.skilldev.review import Reviewer
 from flins.skilldev.workspace import NAME, WorkspaceError
 from flins.skills.engine import SkillEngine
 from flins.skills.lock import LOCK_FILE, SkillLock
 from flins.web.qr import qr_svg, read_pair_state
+from flins.wiring import conversation_store, start_assistant
 
 TIERS = ["inner", "trusted", "known", "unknown", "blocked"]
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -59,10 +62,20 @@ def create_app(
     token: str | None = None,
     clock: Clock | None = None,
     settings: Settings | None = None,
+    assistant: Assistant | None = None,
+    llm_backend: Backend | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="FLINS", docs_url=None, redoc_url=None, openapi_url=None)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        if app.state.assistant_rt is not None:  # the standalone dashboard's own core
+            await app.state.assistant_rt.close()
+
+    app = FastAPI(title="FLINS", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.token = token or secrets.token_urlsafe(24)
     app.state.pairing = None  # the `--pair` sidecar process started from /pair
+    app.state.assistant = assistant  # `flins run` passes its live core; else made on demand
+    app.state.assistant_rt = None
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     clk = clock or SystemClock()
     reviewer = Reviewer(settings) if settings is not None else None
@@ -345,6 +358,41 @@ def create_app(
         finally:
             await modes.close()
         return RedirectResponse(f"/?msg={quote(reply or 'Not a command.')}", status_code=303)
+
+    # ------------------------------------------------------------------ chat (assistant core)
+
+    async def get_assistant() -> Assistant:
+        if app.state.assistant is None:
+            if settings is None:
+                raise HTTPException(status_code=404, detail="chat is not available here")
+            # Standalone dashboard: its own core, which can talk but not send or approve.
+            app.state.assistant_rt = await start_assistant(settings, llm_backend)
+            app.state.assistant = app.state.assistant_rt.assistant
+        found: Assistant = app.state.assistant
+        return found
+
+    @app.get("/chat", response_class=HTMLResponse)
+    async def chat_page(request: Request) -> HTMLResponse:
+        if settings is None:
+            raise HTTPException(status_code=404, detail="chat is not available here")
+        async with db() as conn:
+            turns = await conversation_store(settings, conn).history(40)
+        return page(
+            request,
+            "chat.html",
+            turns=turns,
+            assistant_name=settings.app.assistant.name,
+            live=assistant is not None,
+            mode=await mode_text(),
+        )
+
+    @app.post("/chat")
+    async def chat_say(text: str = Form(...), token: str = Form(...)) -> RedirectResponse:
+        check_token(token)
+        said = text.strip()[:4000]
+        if said:
+            await (await get_assistant()).handle(said, source="dashboard")
+        return RedirectResponse("/chat#say", status_code=303)
 
     # ------------------------------------------------------------------ WhatsApp pairing
 

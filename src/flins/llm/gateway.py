@@ -88,7 +88,7 @@ class Attempt:
 
 
 class Router(Protocol):
-    def chain(self, prompt: Prompt) -> list[Attempt]: ...
+    def chain(self, prompt: Prompt, role: str | None = None) -> list[Attempt]: ...
 
 
 class AnthropicBackend:
@@ -218,9 +218,11 @@ class LLMGateway:
         self._tz = tz
         self._timeout = timeout_s
 
-    def chain(self, prompt: Prompt) -> list[Attempt]:
+    def chain(self, prompt: Prompt, role: str | None = None) -> list[Attempt]:
+        """Providers to try. `role` picks a route list other than the prompt's own job
+        (the chat prompt can run on the `chat` or the `reason` model)."""
         if self._router is not None:
-            return self._router.chain(prompt)
+            return self._router.chain(prompt, role)
         assert self._backend is not None
         return [Attempt(self._backend, prompt, getattr(self._backend, "name", "llm"))]
 
@@ -236,8 +238,16 @@ class LLMGateway:
     async def budget_ok(self) -> bool:
         return await self.spent_today() < self._budget
 
-    async def json(self, *, prompt: Prompt, user: str, schema: dict[str, Any], out: type[T]) -> T:
-        attempts = self.chain(prompt)
+    async def json(
+        self,
+        *,
+        prompt: Prompt,
+        user: str,
+        schema: dict[str, Any],
+        out: type[T],
+        role: str | None = None,
+    ) -> T:
+        attempts = self.chain(prompt, role)
         if not attempts:
             raise LLMError(f"no LLM provider available for {prompt.name}")
         failures: list[str] = []

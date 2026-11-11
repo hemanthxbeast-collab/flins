@@ -21,6 +21,7 @@ from flins.adapters.baileys import BaileysAdapter, SidecarAuthError, SidecarBusy
 from flins.adapters.base import ConnectionChanged, SidecarHello
 from flins.adapters.protocol import MIN_SECRET_LENGTH
 from flins.adapters.sidecar_proc import Sidecar, SidecarSetupError, port_open
+from flins.assistant.core import Assistant
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import SystemClock
@@ -41,7 +42,14 @@ from flins.llm.prompts import PromptError, load_prompt
 from flins.settings import Settings, find_root, load_settings
 from flins.skills import admin as skills_admin
 from flins.web.app import create_app
-from flins.wiring import build_router, make_brain, make_skills
+from flins.wiring import (
+    build_router,
+    conversation_store,
+    make_assistant,
+    make_brain,
+    make_skills,
+    open_assistant,
+)
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
@@ -157,6 +165,12 @@ def cmd_doctor(root: Path | None) -> int:
     for role, chain in router.describe().items():
         usable = [c for c in chain if not c.endswith("(no key)")]
         _line(OK if usable else WARN, f"AI {role}: {' -> '.join(chain) or 'nothing configured'}")
+    if settings.app.assistant.enabled:
+        for role in ("chat", "reason"):
+            routes_ = [f"{r.provider}/{r.model}" for r in router.routes_for(role)]
+            _line(OK, f"assistant {role}: {' -> '.join(routes_) or 'nothing configured'}")
+    else:
+        _line(WARN, "assistant.enabled is false: FLINS runs commands but doesn't talk")
     if router.missing_roles():
         _line(WARN, "some AI jobs have no provider with a key: FLINS decides without AI")
     else:
@@ -378,14 +392,17 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
             conn=conn,
             skills=skills,
             skill_requests=settings.skills_dir / "_incoming",
+            conversational=True,
         )
-        SelfChatCommands(conn, bus, router)
+        # Everything you say to FLINS, on any channel, goes through the assistant core.
+        assistant = make_assistant(settings, conn, clock, modes, router, ai, approvals)
+        SelfChatCommands(conn, bus, assistant)
         notifier = SelfChatNotifier(conn, bus, settings.policy, clock, lambda: ingest.me)
         voice_loop = None
         if voice or settings.app.voice.enabled:
-            voice_loop, hotkey = await _start_voice(settings, router, bus, conn)
+            voice_loop, hotkey = await _start_voice(settings, assistant, bus, conn)
         _attach_printers(bus)
-        dashboard = _dashboard_server(settings)
+        dashboard = _dashboard_server(settings, assistant)
         dashboard_task = asyncio.create_task(dashboard.serve())
         print(f"FLINS running. {await modes.status_text()}")
         if skills is not None:
@@ -492,9 +509,11 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
     return code
 
 
-def _dashboard_server(settings: Settings) -> uvicorn.Server:
+def _dashboard_server(settings: Settings, assistant: Assistant | None = None) -> uvicorn.Server:
     port = settings.app.network.dashboard_port
-    app = create_app(settings.db_path, settings.policy, port=port, settings=settings)
+    app = create_app(
+        settings.db_path, settings.policy, port=port, settings=settings, assistant=assistant
+    )
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
     return uvicorn.Server(config)
 
@@ -760,6 +779,81 @@ async def _mode_command(settings: Settings, text: str) -> int:
         return 2
     print(reply)
     return 0
+
+
+async def _ask(settings: Settings, text: str, interactive: bool) -> int:
+    """One message (`flins ask`), or a conversation in the terminal (`flins chat`)."""
+    name = settings.app.assistant.name
+    async with open_assistant(settings) as rt:
+
+        async def say(line: str) -> None:
+            reply = await rt.assistant.handle(line, source="cli")
+            print(f"{name}: {reply.text}" if interactive else reply.text)
+
+        if not interactive:
+            await say(text)
+            # A free-form command asks "yes or no?". Answer here, while this process is alive.
+            for _ in range(4):
+                if not (rt.router.awaiting("cli") and sys.stdin.isatty()):
+                    break
+                try:
+                    await say(input("> "))
+                except EOFError:
+                    break
+            return 0
+        print(f"Talking to {name}. Type 'exit' to leave.")
+        while True:
+            try:
+                line = (await asyncio.to_thread(input, "you: ")).strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if line.lower() in ("exit", "quit", "bye"):
+                return 0
+            if line:
+                await say(line)
+
+
+async def _chat_history(settings: Settings, clear: bool) -> int:
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    try:
+        store = conversation_store(settings, conn)
+        if clear:
+            n = await store.clear()
+            await AuditLog(conn).record("user", "assistant.conversation_cleared", {"turns": n})
+            print(f"Deleted {n} conversation turns.")
+            return 0
+        tz = datetime.now().astimezone().tzinfo
+        name = settings.app.assistant.name
+        turns = await store.history(40)
+        for t in turns:
+            who = "you" if t.role == "user" else name
+            print(f"[{t.ts.astimezone(tz):%d %b %H:%M}] {who} ({t.source}): {t.text}")
+        if not turns:
+            print('No conversation yet. Try: uv run flins ask "what can you do?"')
+    finally:
+        await conn.close()
+    return 0
+
+
+def cmd_ask(root: Path | None, text: str, *, interactive: bool) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    if not interactive and not text.strip():
+        print('Ask something, e.g. uv run flins ask "what can you do?"')
+        return 2
+    with contextlib.suppress(KeyboardInterrupt):
+        return asyncio.run(_ask(settings, text, interactive))
+    return 0
+
+
+def cmd_chat_history(root: Path | None, clear: bool) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_chat_history(settings, clear))
 
 
 def cmd_mode(root: Path | None, text: str) -> int:
@@ -1029,6 +1123,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("resume", help="undo `flins stop`: back to the previous mode if it hasn't ended")
     mode = sub.add_parser("mode", help="show or change mode, e.g. flins mode working mood till 6pm")
     mode.add_argument("args", nargs="*")
+    ask = sub.add_parser("ask", help='say one thing to FLINS, e.g. flins ask "what can you do?"')
+    ask.add_argument("text", nargs="*")
+    chat = sub.add_parser("chat", help="talk to FLINS in this terminal (or --history / --clear)")
+    chat.add_argument("--history", action="store_true", help="show recent conversation turns")
+    chat.add_argument("--clear", action="store_true", help="delete all stored conversation")
     wa = sub.add_parser("wa", help="WhatsApp sidecar commands (M1)")
     wa_sub = wa.add_subparsers(dest="wa_command", required=True)
     pair = wa_sub.add_parser("pair", help="pair FLINS as a linked device (shows a QR)")
@@ -1103,6 +1202,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_live(root, spawn=not args.no_spawn, brain=False)
     if args.command == "run":
         return cmd_live(root, spawn=not args.no_spawn, brain=True, voice=args.voice)
+    if args.command == "ask":
+        return cmd_ask(root, " ".join(args.text), interactive=False)
+    if args.command == "chat":
+        if args.history or args.clear:
+            return cmd_chat_history(root, args.clear)
+        return cmd_ask(root, "", interactive=True)
     if args.command == "mode":
         return cmd_mode(root, " ".join(args.args))
     if args.command in ("stop", "resume"):

@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from zoneinfo import ZoneInfo
 
 import aiosqlite
@@ -84,6 +84,7 @@ NO = {
     "no need",
     "rehne do",
 }
+OWNER_B = ("voice", "self_chat")  # channels with free-form commands before the assistant core
 HELP = (
     "Sorry, I didn't get that. Try 'working mood till 6', 'what did I miss', "
     "'approve 3', or 'tell Rahul I'll call at 8'."
@@ -131,7 +132,16 @@ class CommandRouter:
         conn: aiosqlite.Connection | None = None,
         skills: SkillEngine | None = None,
         skill_requests: Path | None = None,
+        conversational: bool = False,
+        can_send: bool = True,
     ) -> None:
+        # conversational: used under the assistant core. Free-form commands are understood on
+        # every owner channel, and "not a command" is reported as None (the core then talks)
+        # instead of the help text.
+        self._conversational = conversational
+        # can_send=False: this process has no outbox worker (`flins ask`, the standalone
+        # dashboard), so it must not queue messages that would go out much later.
+        self._can_send = can_send
         self._modes = modes
         self._skills = skills
         self._requests_dir = skill_requests  # skills/_incoming: requests for Hermes (M8)
@@ -143,6 +153,12 @@ class CommandRouter:
         self._conn = conn
         self._pending: dict[str, _Confirmation] = {}
         self._follow: dict[str, _FollowUp] = {}
+
+    def awaiting(self, source: str) -> bool:
+        """True while FLINS is waiting for your yes/no or an answer to its question."""
+        now = self._clock.now()
+        p, f = self._pending.get(source), self._follow.get(source)
+        return bool((p and p.expires > now) or (f and f.expires > now))
 
     async def handle_text(self, text: str, *, source: str) -> str | None:
         """Run a command. Returns reply text, or None if `text` isn't a command."""
@@ -249,16 +265,18 @@ class CommandRouter:
         return f"{question} Say yes or no."
 
     async def _tier_b(self, text: str, source: str) -> str | None:
-        if self._intents is None or source not in ("voice", "self_chat"):
+        owner = ("voice", "self_chat", "cli", "dashboard") if self._conversational else OWNER_B
+        if self._intents is None or source not in owner:
             return None
+        quiet = self._conversational or source == "self_chat"
         names = await contact_names(self._conn) if self._conn is not None else []
         try:
             intent = await self._intents.parse(text, names)
         except LLMError:
-            return None if source == "self_chat" else "Sorry, I can't understand that right now."
+            return None if quiet else "Sorry, I can't understand that right now."
         a = intent.action
         if a == "unknown":
-            return None if source == "self_chat" else HELP
+            return None if quiet else HELP
         if a == "stop":  # stopping is always safe: no confirmation
             return await self._mode(ModeEvent.KILL, source)
         if a == "status":
@@ -276,7 +294,7 @@ class CommandRouter:
             return self._confirm_mode(intent, source)
         if a == "send":
             return await self._confirm_send(intent, source)
-        return None if source == "self_chat" else HELP
+        return None if quiet else HELP
 
     def _confirm_mode(self, intent: Intent, source: str) -> str:
         now = self._clock.now()
@@ -335,7 +353,7 @@ class CommandRouter:
         return self._confirm(source, f'Send to {p.who}: "{text}"?', run)
 
     async def _confirm_send(self, intent: Intent, source: str) -> str:
-        if self._conn is None:
+        if self._conn is None or not self._can_send:
             return "Sending messages only works while `flins run` is running."
         return await self._send_flow(intent.contact, intent.text, source)
 
@@ -444,10 +462,16 @@ class CommandRouter:
         return dt.astimezone(self._tz).strftime("%H:%M")
 
 
+class TextHandler(Protocol):
+    """Anything that answers your text: the CommandRouter, or the assistant core around it."""
+
+    async def handle_text(self, text: str, *, source: str) -> str | None: ...
+
+
 class SelfChatCommands:
     """Listens for messages the user writes in their own 'Message yourself' chat."""
 
-    def __init__(self, conn: aiosqlite.Connection, bus: EventBus, router: CommandRouter) -> None:
+    def __init__(self, conn: aiosqlite.Connection, bus: EventBus, router: TextHandler) -> None:
         self._conn = conn
         self._bus = bus
         self._audit = AuditLog(conn)

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2 style="margin-top:0">Chat with {{ assistant_name }}</h2>
+  <p class="muted">The same conversation as voice, your self-chat and <code>flins ask</code>.
+    {% if not live %}This dashboard is running without <code>flins run</code>, so {{ assistant_name }} can talk and switch modes here, but can't send or approve messages.{% endif %}
+    Stored on this PC; <code>flins chat --clear</code> deletes it.</p>
+  {% if not turns %}<p class="muted">Nothing yet. Say hello, or try "I'm working till 6".</p>{% endif %}
+  {% for t in turns %}
+    <div class="draft {% if t.role == 'assistant' %}send{% endif %}">
+      <span class="muted" style="font-size:12.5px">{{ t.ts.isoformat()|local('%d %b %H:%M') }} · {{ "you" if t.role == "user" else assistant_name }} · {{ t.source }}</span><br>{{ t.text }}</div>
+  {% endfor %}
+  <form id="say" method="post" action="/chat" class="row" style="margin-top:14px">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="text" name="text" placeholder="Ask or tell {{ assistant_name }} something" size="60" maxlength="4000" autofocus required>
+    <button>Send</button>
+  </form>
+</div>
+{% endblock %}

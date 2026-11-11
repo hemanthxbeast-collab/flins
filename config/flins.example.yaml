@@ -47,10 +47,44 @@ llm:
       - {provider: gemini, model: gemini-3.8-flash}
       - {provider: nvidia, model: nvidia/nemotron-3.5-lightning-30b-a3b}
 
+    # Optional jobs for talking with FLINS. Leave them out and they borrow from the jobs
+    # above: chat -> draft, reason -> chat, intent -> triage, summary -> triage.
+    # chat:            # ordinary conversation and voice answers: fast matters
+    #   - {provider: anthropic, model: claude-haiku-5-5}
+    #   - {provider: groq, model: openai/gpt-oss-120b}
+    # reason:          # long or planning-style requests: your strongest model
+    #   - {provider: anthropic, model: claude-sonnet-5-5}
+    #   - {provider: groq, model: openai/gpt-oss-120b}
+    # A local model keeps your conversation on this PC:
+    #   - {provider: ollama, model: <a model you pulled>}
+
   # Optional: tweak a built-in provider or add any OpenAI-compatible one.
   # providers:
   #   ollama: {base_url: "http://localhost:11434/v1"}
   #   together: {base_url: "https://api.together.xyz/v1", key_env: TOGETHER_API_KEY}
+
+# ---------------------------------------------------------------------------------------------
+# The assistant: how FLINS talks with you (voice, your self-chat, `flins ask`, dashboard Chat).
+# What it says goes to the `chat` model above. Conversation is stored only on this PC.
+assistant:
+  enabled: true                 # false = commands only, no conversation
+  name: FLINS
+  style: concise                # concise | balanced | detailed
+  humor: light                  # none | light
+  notes: []                     # extra personality notes, e.g. ["Explain code with examples."]
+  self_chat: addressed          # your "Message yourself" chat is also your notes:
+                                #   addressed = talks only when you start with "FLINS, ..." or
+                                #               while a conversation with it is open
+                                #   all = answers everything you type there; off = commands only
+  follow_window_s: 180          # how long a self-chat conversation stays open after a reply
+  history_turns: 12             # recent turns the model sees (older ones are summarised)
+  session_idle_minutes: 30      # a quiet gap this long starts a new conversation
+  keep_days: 30                 # conversation is deleted after this (flins chat --clear: now)
+  use_about_me: true            # give the model your about_me.yaml facts
+  reasoning:                    # when to use the `reason` model instead of `chat`
+    min_chars: 280
+    cues: [plan, step by step, compare, pros and cons, trade-off, debug, design, strategy,
+           explain why, in detail]
 
 # ---------------------------------------------------------------------------------------------
 # Skills (M7). Each skill still needs `flins skills enable <name>`.

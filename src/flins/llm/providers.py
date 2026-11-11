@@ -21,9 +21,14 @@ from flins.llm.gateway import AnthropicBackend, Attempt, Backend, LLMError, RawR
 from flins.llm.prompts import Prompt
 
 JsonMode = Literal["json_schema", "json_object", "prompt"]
-ROLES = ("triage", "draft", "redflag")
-# Jobs without their own route list borrow another job's providers.
-ROLE_FALLBACK = {"intent": "triage"}
+ROLES = ("triage", "draft", "redflag")  # needed for WhatsApp handling
+# Optional jobs. Without their own route list in flins.yaml they borrow another job's:
+#   intent  (understanding commands)        -> triage   (small and fast)
+#   chat    (talking with you)              -> draft
+#   reason  (long / planning-style requests) -> chat -> draft
+#   summary (conversation summaries)        -> triage
+OPTIONAL_ROLES = ("intent", "chat", "reason", "summary")
+ROLE_FALLBACK = {"intent": "triage", "chat": "draft", "reason": "chat", "summary": "triage"}
 
 
 @dataclass(frozen=True)
@@ -271,11 +276,20 @@ class ConfiguredRouter:
     def role_of(prompt: Prompt) -> str:
         return prompt.name.split("_v")[0]
 
-    def chain(self, prompt: Prompt) -> list[Attempt]:
+    def routes_for(self, role: str) -> list[Route]:
+        """This role's routes, or those of the role it borrows from (following the chain)."""
+        seen: set[str] = set()
+        while role and role not in seen:
+            seen.add(role)
+            routes = self._routes.get(role)
+            if routes:
+                return routes
+            role = ROLE_FALLBACK.get(role, "")
+        return []
+
+    def chain(self, prompt: Prompt, role: str | None = None) -> list[Attempt]:
         out = []
-        role = self.role_of(prompt)
-        routes = self._routes.get(role) or self._routes.get(ROLE_FALLBACK.get(role, ""), [])
-        for r in routes:
+        for r in self.routes_for(role or self.role_of(prompt)):
             backend = self._backends.get(r.provider)
             if backend is not None:
                 out.append(Attempt(backend, replace(prompt, model=r.model), r.provider, r.price))

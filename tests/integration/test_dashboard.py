@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from flins.core.clock import FrozenClock
 from flins.core.policy_schema import Policy
 from flins.replay import load_script, run_script
 from flins.web.app import create_app
@@ -17,6 +19,9 @@ from tests.conftest import REPO_ROOT
 
 PORT = 8765
 BASE = f"http://127.0.0.1:{PORT}"
+# The replay's own start time. With the real clock, its drafts count as expired once that
+# date has passed, and the Approve buttons disappear.
+WHEN = FrozenClock(datetime.fromisoformat("2026-11-09T10:00:00+05:30"))
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +44,9 @@ def filled_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture
 def client(filled_db: Path, example_policy_dict: dict[str, Any]) -> TestClient:
-    app = create_app(filled_db, Policy.model_validate(example_policy_dict), port=PORT, token="T")
+    app = create_app(
+        filled_db, Policy.model_validate(example_policy_dict), port=PORT, token="T", clock=WHEN
+    )
     return TestClient(app, base_url=BASE)
 
 
@@ -84,7 +91,9 @@ def test_contacts_page(client: TestClient) -> None:
 
 
 def test_wrong_host_is_rejected(filled_db: Path, example_policy_dict: dict[str, Any]) -> None:
-    app = create_app(filled_db, Policy.model_validate(example_policy_dict), port=PORT, token="T")
+    app = create_app(
+        filled_db, Policy.model_validate(example_policy_dict), port=PORT, token="T", clock=WHEN
+    )
     evil = TestClient(app, base_url="http://attacker.example")
     assert evil.get("/").status_code == 400
 
