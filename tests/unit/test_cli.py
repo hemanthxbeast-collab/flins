@@ -47,3 +47,11 @@ def test_mode_and_stop_commands(project: Path, capsys: pytest.CaptureFixture[str
     assert main([*root, "resume"]) == 0
     assert "Resumed" in capsys.readouterr().out
     assert main([*root, "mode", "make", "me", "a", "sandwich"]) == 2
+
+
+def test_voice_download_list_flag_is_accepted() -> None:
+    from flins.cli import build_parser
+
+    args = build_parser().parse_args(["voice", "download", "--list"])
+    assert args.action == "download" and args.list is True
+    assert build_parser().parse_args(["voice", "say", "hello", "there"]).text == ["hello", "there"]

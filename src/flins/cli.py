@@ -1279,6 +1279,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     vo.add_argument("action", choices=["test", "say", "voices", "download"])
     vo.add_argument("text", nargs="*")
+    vo.add_argument("--list", action="store_true", help="with download: list Piper voices")
     ev = sub.add_parser("eval", help="run the WhatsApp safety eval (recorded LLM answers)")
     ev.add_argument("--live", action="store_true", help="use the real AI models (costs money)")
     ev.add_argument("--provider", default=None, help="live, with only this provider (e.g. groq)")
@@ -1356,7 +1357,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command in ("stop", "resume"):
         return cmd_mode(root, args.command)
     if args.command == "voice":
-        return cmd_voice(root, args.action, " ".join(args.text))
+        text = "--list" if args.list else " ".join(args.text)
+        return cmd_voice(root, args.action, text)
     if args.command == "dashboard":
         return cmd_dashboard(root)
     if args.command == "eval":
