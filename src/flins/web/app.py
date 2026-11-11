@@ -42,7 +42,13 @@ from flins.skilldev.workspace import NAME, WorkspaceError
 from flins.skills.engine import SkillEngine
 from flins.skills.lock import LOCK_FILE, SkillLock
 from flins.web.qr import qr_svg, read_pair_state
-from flins.wiring import conversation_store, memory_store, start_assistant, task_store
+from flins.wiring import (
+    conversation_store,
+    memory_store,
+    plan_store,
+    start_assistant,
+    task_store,
+)
 
 TIERS = ["inner", "trusted", "known", "unknown", "blocked"]
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -487,11 +493,16 @@ def create_app(
                 for t in await tasks.open()
             ]
             done = [t.title for t in await tasks.recently_done(8)]
+            plans = [
+                {"id": p.id, "title": p.title, "progress": p.progress()}
+                for p in await plan_store(s, conn).open()
+            ]
         return page(
             request,
             "tasks.html",
             rows=rows,
             done=done,
+            plans=plans,
             assistant_name=s.app.assistant.name,
             mode=await mode_text(),
         )
@@ -522,6 +533,14 @@ def create_app(
                         repeat=when.repeat,
                     )
                     msg = "Added."
+            elif action == "delete_plan":
+                plans = plan_store(s, conn)
+                plan = await plans.get(task_id)
+                if plan is None or plan.status != "open":
+                    msg = "That plan isn't in progress."
+                else:
+                    await plans.cancel(plan, now, via="dashboard")
+                    msg = "Plan deleted."
             elif action in ("done", "delete"):
                 task = await tasks.get(task_id)
                 if task is None or task.status != "open":

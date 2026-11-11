@@ -2,6 +2,26 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 3b: planning (2026-11-11)
+- **A plan step is a task.** `tasks.plan_id` + `step_no` instead of a separate steps table:
+  reminders, "done with …", the list, the CLI and the dashboard work on steps unchanged.
+- **Propose, then yes.** The planner's output is only a proposal held for 60 s; a plan row is
+  written when you say yes. No, silence, a model failure or an empty answer write nothing.
+- **Planning is a command, not conversation.** "make a plan …" is matched by a fixed pattern
+  and then calls the planner; the conversation model still cannot create anything. The pattern
+  is deliberately narrow ("plans change", "I plan nothing" stay conversation).
+- **No tool steps yet.** The spec's "approval gates before a step that acts" needs steps that
+  can act, which arrive with tools in phase 4. Building gates for nothing would be untestable,
+  so the cautious choice is: today every step is manual, and that is stated to the user.
+- **No invented times.** The planner is told not to add dates, and steps are stored without
+  one. You attach times with the reminder commands.
+- **Questions that match no plan fall through.** "what's my plan for today?" or "what's next"
+  with no plan in progress go to the conversation model (which sees the task list) instead of
+  answering "no such plan".
+- **Planner effort is medium**, so a local model answers directly instead of thinking for up
+  to a minute. Live check on 2026-11-11 (cloud fallback, Ollama was not running): a sensible
+  5-step plan in ~6 s, and a question back for "my thing".
+
 ## Phase 3a: tasks and reminders (2026-11-11)
 - **Commands, not model output, create tasks.** Same rule as memory: the conversation model
   cannot act, so a reminder exists only if a fixed phrase matched and a row was written. The

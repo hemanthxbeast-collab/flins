@@ -6,7 +6,7 @@ and the git history. `docs/SPEC.md` stays the source of truth for the WhatsApp s
 This document describes how FLINS grows from a messaging assistant into one personal assistant
 **without a rewrite**.
 
-**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3a (tasks and reminders, 0.13.0; [milestones/J3.md](milestones/J3.md)). Next: phase 3b (planning), then phase 4 (tools).
+**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3 (tasks and reminders 0.13.0, planning 0.14.0; [milestones/J3.md](milestones/J3.md), [J3b.md](milestones/J3b.md)). Next: phase 4 (tools).
 
 ## 1. Where FLINS is today
 
@@ -90,7 +90,7 @@ work. Nothing below is replaced; the boxes marked ★ are new.
 | Memory | `assistant/memory.py`: `MemoryStore` interface (phase 1), real store (phase 2) |
 | State | `ModeManager`, approvals, outbox, tasks (phase 3) |
 | Intent | Tier A grammar, then `IntentParser` (Tier B) |
-| Planning | `assistant/planner.py` (phase 3): steps with status/input/output/tool/retry |
+| Planning | `assistant/plans.py` (phase 3b): a plan is ordered tasks, saved on your yes. Tool steps with input/output/retry and approval gates come with phase 4 |
 | Tool selection | Skill registry with owner-callable skills (phase 4) |
 | Execution | Command executor (router) now; skill sandbox for tools |
 | Permissions / safety | Policy engine, capability scopes on skills, approvals, kill switch |

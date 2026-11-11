@@ -211,7 +211,7 @@ async def test_questions_go_to_the_right_specialist(rig: Rig) -> None:
         "what's the capital of France?",
         "why does my python loop skip items?",
         "```\nfor i in x: pass\n```",
-        "make a plan for my revision week",
+        "compare morning and night study for my revision week",
         "is java or javascript older?",
         "what is the capital gain here?",
         "I like explanations with a small code example",  # a preference, not a coding question
@@ -246,7 +246,7 @@ async def test_one_moment_before_a_slow_answer(rig: Rig) -> None:
 
     rig.assistant.on_wait = note
     await rig.say("who wrote Hamlet?", source="cli")  # fast model: no notice
-    await rig.say("make a plan for my revision week", source="cli")
+    await rig.say("compare morning and night study for my revision week", source="cli")
     assert waits == ["cli"]
 
     async def broken(source: str) -> None:

@@ -22,6 +22,7 @@ from flins.adapters.base import ConnectionChanged, SidecarHello
 from flins.adapters.protocol import MIN_SECRET_LENGTH
 from flins.adapters.sidecar_proc import Sidecar, SidecarSetupError, port_open
 from flins.assistant.core import Assistant
+from flins.assistant.plans import render
 from flins.assistant.task_commands import deliver_due
 from flins.assistant.timeparse import extract
 from flins.core.approvals import ApprovalService
@@ -52,6 +53,7 @@ from flins.wiring import (
     make_skills,
     memory_store,
     open_assistant,
+    plan_store,
     task_store,
 )
 
@@ -967,6 +969,48 @@ async def _tasks(settings: Settings, action: str, rest: list[str]) -> int:
         await conn.close()
 
 
+async def _plans(settings: Settings, action: str, rest: list[str]) -> int:
+    """`flins plans`: plans in progress. They are made by talking: "make a plan to …"."""
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    now = SystemClock().now()
+    try:
+        plans = plan_store(settings, conn)
+        if action == "list":
+            items = await plans.recent()
+            if not items:
+                print('No plans yet. Make one by saying or typing: "make a plan to …"')
+            for p in items:
+                state = "" if p.status == "open" else f" [{p.status}]"
+                print(f"  #{p.id} {p.title} ({p.progress()}){state}")
+            return 0
+        if not rest or not rest[0].lstrip("#").isdigit():
+            print(f"Which one? flins plans {action} <number>  (see: flins plans)")
+            return 2
+        plan = await plans.get(int(rest[0].lstrip("#")))
+        if plan is None:
+            print(f"There's no plan #{rest[0].lstrip('#')}.")
+            return 1
+        if action == "show":
+            print(render(plan))
+            return 0
+        if plan.status != "open":
+            print(f"Plan #{plan.id} is already {plan.status}.")
+            return 1
+        n = await plans.cancel(plan, now, via="cli")
+        print(f"Deleted plan #{plan.id} '{plan.title}' and its {n} open steps.")
+        return 0
+    finally:
+        await conn.close()
+
+
+def cmd_plans(root: Path | None, action: str, rest: list[str]) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_plans(settings, action, rest))
+
+
 def cmd_tasks(root: Path | None, action: str, rest: list[str]) -> int:
     settings = _load(root)
     if settings is None:
@@ -1343,6 +1387,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tsk.add_argument("action", nargs="?", default="list", choices=["list", "add", "done", "delete"])
     tsk.add_argument("rest", nargs="*")
+    pln = sub.add_parser("plans", help="plans in progress: list, show <n>, delete <n>")
+    pln.add_argument("action", nargs="?", default="list", choices=["list", "show", "delete"])
+    pln.add_argument("rest", nargs="*")
     wa = sub.add_parser("wa", help="WhatsApp sidecar commands (M1)")
     wa_sub = wa.add_subparsers(dest="wa_command", required=True)
     pair = wa_sub.add_parser("pair", help="pair FLINS as a linked device (shows a QR)")
@@ -1424,6 +1471,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_memory(root, args.action, args.rest)
     if args.command == "tasks":
         return cmd_tasks(root, args.action, args.rest)
+    if args.command == "plans":
+        return cmd_plans(root, args.action, args.rest)
     if args.command == "ask":
         return cmd_ask(root, " ".join(args.text), interactive=False)
     if args.command == "chat":

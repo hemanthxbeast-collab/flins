@@ -198,7 +198,14 @@ async def test_context_has_identity_state_and_time_but_no_hardcoded_person(rig: 
     assert "mode: Working mode until 18:00" in ctx
     assert "drafts waiting for approval: 0" in ctx
     # Personal details live in config, never in the prompt files.
-    for name in ("chat_v1.md", "chat_v2.md", "chat_v3.md", "summary_v1.md"):
+    for name in (
+        "chat_v1.md",
+        "chat_v2.md",
+        "chat_v3.md",
+        "chat_v4.md",
+        "plan_v1.md",
+        "summary_v1.md",
+    ):
         text = (PROMPTS / name).read_text(encoding="utf-8")
         assert user.name not in text and "Asia/Kolkata" not in text
 
@@ -439,7 +446,7 @@ async def test_long_or_planning_requests_use_the_reasoning_model(rig: Rig) -> No
 
     rig.assistant._chat = Spy()  # type: ignore[assignment]
     await rig.say("what's the capital of France?", source="cli")
-    await rig.say("make a plan for learning thermodynamics in a week", source="cli")
+    await rig.say("what are the pros and cons of studying at night?", source="cli")
     await rig.say("x " * 200, source="dashboard")
     await rig.say("compare these two options step by step", source="voice")  # voice stays fast
     assert seen == ["chat", "reason", "reason", "chat"]
@@ -452,7 +459,7 @@ async def test_long_or_planning_requests_use_the_reasoning_model(rig: Rig) -> No
 async def test_every_turn_is_audited_without_its_text(rig: Rig) -> None:
     await rig.say("a very private question about zebras", source="cli")
     row = (await rig.audit("assistant.turn"))[-1]
-    assert row["route"] == "chat" and row["source"] == "cli" and row["prompt"] == "chat_v3"
+    assert row["route"] == "chat" and row["source"] == "cli" and row["prompt"] == "chat_v4"
     assert row["chars_in"] == len("a very private question about zebras")
     assert "zebras" not in json.dumps(row)
 

@@ -33,6 +33,9 @@ class Task:
     created_at: datetime
     completed_at: datetime | None
     last_reminded_at: datetime | None
+    plan_id: int | None = None  # set when this task is a step of a plan
+    step_no: int | None = None
+    project: str | None = None  # the plan's title
 
     @property
     def when(self) -> datetime | None:
@@ -51,7 +54,8 @@ class Task:
             )
         extra = f" ({', '.join(bits)})" if bits else ""
         flag = " [high]" if self.priority == "high" else ""
-        return f"{self.title}{extra}{flag}"
+        plan = f" [{self.project}, step {self.step_no}]" if self.plan_id and self.project else ""
+        return f"{self.title}{extra}{flag}{plan}"
 
 
 class TaskStore:
@@ -80,6 +84,9 @@ class TaskStore:
             from_iso(r["created_at"]),
             dt(r["completed_at"]),
             dt(r["last_reminded_at"]),
+            r["plan_id"],
+            r["step_no"],
+            r["project"],
         )
 
     async def get(self, task_id: int) -> Task | None:
@@ -98,6 +105,9 @@ class TaskStore:
         repeat: str = "none",
         priority: str = "normal",
         remind: bool = True,
+        plan_id: int | None = None,
+        step_no: int | None = None,
+        project: str | None = None,
     ) -> Task:
         """`at` is when it's due; with `remind` FLINS also reminds you then."""
         title = " ".join(title.split())[:MAX_TITLE]
@@ -105,7 +115,8 @@ class TaskStore:
             raise ValueError("a task needs a title")
         cur = await self._conn.execute(
             "INSERT INTO tasks (title, priority, due_at, remind_at, repeat, source, channel, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "created_at, updated_at, plan_id, step_no, project) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 title,
                 priority if priority in PRIORITY_RANK else "normal",
@@ -116,6 +127,9 @@ class TaskStore:
                 channel,
                 to_iso(now),
                 to_iso(now),
+                plan_id,
+                step_no,
+                project,
             ),
         )
         await self._conn.commit()
@@ -135,6 +149,27 @@ class TaskStore:
             tasks = [self._task(r) for r in await cur.fetchall()]
         far = datetime.max.replace(tzinfo=self._tz)
         return sorted(tasks, key=lambda t: (t.when or far, PRIORITY_RANK[t.priority], t.id))
+
+    async def steps(self, plan_id: int) -> list[Task]:
+        """Every step of a plan, in order, whatever its status."""
+        async with self._conn.execute(
+            "SELECT * FROM tasks WHERE plan_id = ? ORDER BY step_no, id", (plan_id,)
+        ) as cur:
+            return [self._task(r) for r in await cur.fetchall()]
+
+    async def _close_plan_if_finished(self, task: Task, now: datetime) -> None:
+        """A plan with no open step left is done (or cancelled, if nothing was ever done)."""
+        if task.plan_id is None:
+            return
+        steps = await self.steps(task.plan_id)
+        if any(s.status == "open" for s in steps):
+            return
+        status = "done" if any(s.status == "done" for s in steps) else "cancelled"
+        await self._conn.execute(
+            "UPDATE plans SET status = ?, updated_at = ? WHERE id = ? AND status = 'open'",
+            (status, to_iso(now), task.plan_id),
+        )
+        await self._conn.commit()
 
     async def recently_done(self, limit: int = 10) -> list[Task]:
         async with self._conn.execute(
@@ -191,6 +226,7 @@ class TaskStore:
             )
         await self._conn.commit()
         await self._audit.record("user", "task.done", {"id": task.id, "repeats": nxt is not None})
+        await self._close_plan_if_finished(task, now)
         done = await self.get(task.id)
         assert done is not None
         return done
@@ -202,6 +238,7 @@ class TaskStore:
         )
         await self._conn.commit()
         await self._audit.record("user", "task.cancelled", {"id": task.id, "via": via})
+        await self._close_plan_if_finished(task, now)
 
     async def snooze(self, task: Task, until: datetime, now: datetime) -> None:
         await self._conn.execute(

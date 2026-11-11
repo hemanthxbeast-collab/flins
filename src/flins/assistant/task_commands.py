@@ -158,7 +158,16 @@ class TaskCommands:
         after = await self._tasks.complete(task, now)
         if after.status == "open" and after.when is not None:  # it repeats
             return f"Done: {task.title}. Next one {describe(after.when, now, self._tasks.tz)}."
-        return f"Done: {task.title}."
+        return f"Done: {task.title}.{await self._plan_note(task)}"
+
+    async def _plan_note(self, task: Task) -> str:
+        """After finishing a plan step: what comes next, or that the plan is complete."""
+        if task.plan_id is None:
+            return ""
+        left = [s for s in await self._tasks.steps(task.plan_id) if s.status == "open"]
+        if left:
+            return f" Next in '{task.project}': {left[0].title}."
+        return f" That finishes the plan '{task.project}'."
 
     async def _delete(self, words: str, source: str, now: datetime) -> str:
         task, problem = await self._pick(words)

@@ -12,6 +12,21 @@
   </form>
 </div>
 
+{% if plans %}
+<div class="card">
+  <h3 style="margin-top:0">Plans in progress</h3>
+  <p class="muted">Made by asking {{ assistant_name }}: "make a plan to …". Each step is a task below.</p>
+  {% for p in plans %}
+  <form method="post" action="/tasks" class="row">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="task_id" value="{{ p.id }}">
+    <span style="flex:1">{{ p.title }} <span class="chip">{{ p.progress }}</span></span>
+    <button name="action" value="delete_plan" class="danger">Delete plan</button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if not rows %}<p class="muted">Nothing on your list.</p>{% endif %}
 {% for r in rows %}
 <div class="card">

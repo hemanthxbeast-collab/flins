@@ -334,7 +334,7 @@ async def test_open_tasks_reach_the_conversation_model(rig: Rig) -> None:
 
 def test_chat_prompt_v3_knows_about_tasks() -> None:
     p = load_prompt(REPO_ROOT / "prompts", "chat")
-    assert p.version == "chat_v3" and "<tasks>" in p.system and "remind me to" in p.system
+    assert "<tasks>" in p.system and "remind me to" in p.system
     assert "reminders, tasks, calendar" not in p.system  # no longer "not available"
     assert "you cannot create it from here" in p.system
 

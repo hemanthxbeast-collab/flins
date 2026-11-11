@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.14.0: phase 3b, planning (2026-11-11)
+- **Plans.** "make a plan to prepare for my physics exam" proposes 2–8 ordered steps and asks
+  "Save this plan?". Only "yes" saves it; each step then becomes a task.
+- "show my plans", "what's my plan for …", "what's next", "delete the plan …" (asks first):
+  fixed phrases, no model. Finishing a step tells you the next one; finishing the last step
+  closes the plan.
+- One model call per plan (`reason` job, prompt `plan_v1`, no tools). It sees the time, your
+  open tasks and the goal, nothing else. Its steps are cleaned in code (one line, clipped, no
+  repeats, at most 10) before they are shown or stored. A vague goal gets one question back.
+- Steps never get invented times, and no step can act: FLINS has no tools yet (phase 4).
+- Open-task lines now say which plan and step they belong to, also for the conversation model
+  (prompt `chat_v4`).
+- `flins plans` (list, show, delete); the dashboard Tasks page lists plans in progress.
+- New table `plans`, `tasks.plan_id` / `step_no` (migration 0014).
+- Tests: 845 Python (28 new), 11 Node. Eval unchanged: 0 unsafe of 162.
+
 ## 0.13.0: phase 3a, tasks and reminders (2026-11-11)
 - **Reminders and tasks.** "remind me to call the bank at 7", "remind me every weekday at 8am
   to …", "add a task …", "what are my tasks", "done with …", "delete the task …", "snooze 20

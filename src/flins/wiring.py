@@ -15,6 +15,7 @@ from flins.assistant.conversation import ConversationStore
 from flins.assistant.core import Assistant, Commands
 from flins.assistant.memory import CombinedMemory, ProfileMemory, SqlMemory
 from flins.assistant.memory_commands import MemoryCommands
+from flins.assistant.plans import PlanCommands, Planner, PlanStore
 from flins.assistant.task_commands import TaskCommands
 from flins.assistant.tasks import TaskStore
 from flins.core.approvals import ApprovalService
@@ -206,6 +207,10 @@ def task_store(settings: Settings, conn: aiosqlite.Connection) -> TaskStore:
     return TaskStore(conn, ZoneInfo(settings.policy.user.timezone))
 
 
+def plan_store(settings: Settings, conn: aiosqlite.Connection) -> PlanStore:
+    return PlanStore(conn, task_store(settings, conn))
+
+
 def make_assistant(
     settings: Settings,
     conn: aiosqlite.Connection,
@@ -218,9 +223,10 @@ def make_assistant(
     """The assistant core (docs/JARVIS_ARCHITECTURE.md). Without a Brain it still runs commands
     and says plainly that it can't chat."""
     cfg = settings.app.assistant
-    chat = summariser = gateway = None
+    chat = summariser = gateway = planner = None
     if brain is not None and cfg.enabled:
         gateway = brain.gateway
+        planner = Planner(gateway, load_prompt(settings.prompts_dir, "plan"))
         chat = ChatEngine(gateway, load_prompt(settings.prompts_dir, "chat"))
         summariser = Summariser(gateway, load_prompt(settings.prompts_dir, "summary"))
     store = conversation_store(settings, conn)
@@ -244,6 +250,7 @@ def make_assistant(
         memory_commands=MemoryCommands(stored, store, commands, cfg, audit),
         tasks=tasks,
         task_commands=TaskCommands(tasks, commands),
+        plan_commands=PlanCommands(PlanStore(conn, tasks), tasks, commands, planner),
     )
 
 

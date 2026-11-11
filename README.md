@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.13.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.14.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models and 3a done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models and 3 done).
 
 ## Talk to FLINS
 ```powershell
@@ -96,6 +96,27 @@ you're talking to FLINS (start with "FLINS, …"); "remind me …" always counts
 uv run flins tasks                      # list   (add "<text with a time>", done <n>, delete <n>)
 ```
 The dashboard's **Tasks** page shows, adds, completes and deletes them too.
+
+## Plans
+Ask for a plan and FLINS proposes ordered steps. Nothing is saved until you say yes; then each
+step is a task on your list.
+
+| Say | What happens |
+|---|---|
+| `make a plan to prepare for my physics exam` | proposes 2–8 steps and asks "Save this plan?" (also: `help me plan …`, `plan my …`, `break down … into steps`) |
+| `show my plans` / `what's my plan for the exam` | the steps, with what's done and what's next |
+| `what's next` | the next open step of your newest plan |
+| `done with <step>` | ticks the step off and tells you the next one |
+| `delete the plan` | removes it and its open steps (asks first) |
+
+Making a plan is the only part that uses an AI model (the `reason` job; a few seconds). The
+steps are things **you** do: FLINS can't carry out a step by itself, and it doesn't invent
+dates or times for them. Add a time yourself with "remind me to … at 7". If the goal is too
+vague, it asks one question instead of guessing.
+
+```powershell
+uv run flins plans                      # list   (show <n>, delete <n>)
+```
 
 ## Voice
 ```powershell
@@ -328,4 +349,4 @@ npm --prefix wa-sidecar test
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
 [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core), 2 (memory), L (local
-models) and 3a (tasks and reminders) are done; next is 3b (planning), then phase 4 (tools).
+models) and 3 (tasks, reminders and planning) are done; next is phase 4 (tools).
