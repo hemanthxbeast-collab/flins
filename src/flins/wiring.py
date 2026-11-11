@@ -13,7 +13,8 @@ import aiosqlite
 from flins.assistant.chat import ChatEngine, Summariser
 from flins.assistant.conversation import ConversationStore
 from flins.assistant.core import Assistant, Commands
-from flins.assistant.memory import ProfileMemory
+from flins.assistant.memory import CombinedMemory, ProfileMemory, SqlMemory
+from flins.assistant.memory_commands import MemoryCommands
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock, SystemClock
@@ -194,6 +195,10 @@ def conversation_store(settings: Settings, conn: aiosqlite.Connection) -> Conver
     )
 
 
+def memory_store(settings: Settings, conn: aiosqlite.Connection, clock: Clock) -> SqlMemory:
+    return SqlMemory(conn, ZoneInfo(settings.policy.user.timezone), clock)
+
+
 def make_assistant(
     settings: Settings,
     conn: aiosqlite.Connection,
@@ -211,19 +216,24 @@ def make_assistant(
         gateway = brain.gateway
         chat = ChatEngine(gateway, load_prompt(settings.prompts_dir, "chat"))
         summariser = Summariser(gateway, load_prompt(settings.prompts_dir, "summary"))
+    store = conversation_store(settings, conn)
+    stored = memory_store(settings, conn, clock)
+    audit = AuditLog(conn)
     return Assistant(
         commands,
-        conversation_store(settings, conn),
+        store,
         modes,
         settings.policy,
         cfg,
         clock,
-        AuditLog(conn),
+        audit,
         chat=chat,
         summariser=summariser,
         gateway=gateway,
-        memory=ProfileMemory(settings.about),
+        memory=CombinedMemory(ProfileMemory(settings.about), stored, cfg),
         approvals=approvals,
+        stored=stored,
+        memory_commands=MemoryCommands(stored, store, commands, cfg, audit),
     )
 
 

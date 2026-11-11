@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2 style="margin-top:0">Memory</h2>
+  <p class="muted">What {{ assistant_name }} remembers. It only saves what you tell it to
+    ("remember that …") or agree to when it asks. It never stores passwords, PINs or codes.
+    Sensitive memories (health, legal, money) are used only when you bring the topic up.</p>
+  <div class="row">
+    {% if config_off %}<span class="chip">memory is off in config/flins.yaml</span>
+    {% elif memory_on %}<span class="chip lvl-auto">memory is on</span>
+      <form class="inline" method="post" action="/memory"><input type="hidden" name="token" value="{{ token }}">
+        <button name="action" value="off">Turn off</button></form>
+    {% else %}<span class="chip urgent">memory is off: nothing is saved or used</span>
+      <form class="inline" method="post" action="/memory"><input type="hidden" name="token" value="{{ token }}">
+        <button name="action" value="on">Turn on</button></form>
+    {% endif %}
+  </div>
+  <form class="row" method="post" action="/memory" style="margin-top:12px">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="text" name="text" placeholder="Add a memory, e.g. I prefer short explanations" size="60" maxlength="500" required>
+    <button name="action" value="add">Remember</button>
+  </form>
+</div>
+
+{% if not rows %}<p class="muted">Nothing remembered yet.</p>{% endif %}
+{% for r in rows %}
+<div class="card">
+  <form method="post" action="/memory" class="row">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="memory_id" value="{{ r.id }}">
+    <input type="text" name="text" value="{{ r.content }}" size="70" maxlength="500" required>
+    <button name="action" value="edit">Save</button>
+    <button name="action" value="delete" class="danger">Forget</button>
+  </form>
+  <div class="muted" style="font-size:13px;margin-top:6px">
+    #{{ r.id }} · {{ r.where }} · <span class="chip">{{ r.kind }}</span>
+    {% if r.sensitive %}<span class="chip urgent">sensitive</span>{% endif %}
+    importance {{ "%.2f"|format(r.importance) }} · used {{ r.uses }}×
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

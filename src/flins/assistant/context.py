@@ -66,9 +66,11 @@ class ContextBuilder:
             f"<channel>{neutralise(c.source)}</channel>",
             "<state>\n" + "\n".join(state) + "\n</state>",
         ]
-        if c.memories:
+        profile = [m for m in c.memories if m.origin == "profile"]
+        stored = [m for m in c.memories if m.origin == "memory"]
+        if profile:
             by_source: dict[str, list[str]] = {}
-            for m in c.memories:
+            for m in profile:
                 by_source.setdefault(m.source, []).append(f"- {_clip(m.content, 300)}")
             for source, lines in by_source.items():
                 blocks.append(
@@ -76,6 +78,10 @@ class ContextBuilder:
                     + "\n".join(lines)
                     + "\n</what_you_know>"
                 )
+        if stored:
+            # Each memory with where it came from, so the model can say so and never guess.
+            lines = [f"- {_clip(m.content, 500)} ({neutralise(m.source)})" for m in stored]
+            blocks.append("<memories>\n" + "\n".join(lines) + "\n</memories>")
         if c.earlier:
             blocks.append(
                 f"<earlier_conversation>\n{_clip(c.earlier, 1500)}\n</earlier_conversation>"

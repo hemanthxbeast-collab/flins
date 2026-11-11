@@ -48,6 +48,7 @@ from flins.wiring import (
     make_assistant,
     make_brain,
     make_skills,
+    memory_store,
     open_assistant,
 )
 
@@ -837,6 +838,70 @@ async def _chat_history(settings: Settings, clear: bool) -> int:
     return 0
 
 
+async def _memory(settings: Settings, action: str, rest: list[str]) -> int:
+    """`flins memory`: see, add, correct and delete what FLINS remembers."""
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    clock = SystemClock()
+    try:
+        mem = memory_store(settings, conn, clock)
+        now = clock.now()
+        if action in ("on", "off"):
+            await mem.set_enabled(action == "on")
+            print(f"Memory is {action}.")
+            return 0
+        if action == "list":
+            records = await mem.all(now)
+            state = "on" if await mem.enabled() else "OFF (kept, but not used or added to)"
+            print(f"Memory is {state}. {len(records)} stored.")
+            for r in records:
+                tag = " [sensitive]" if r.privacy == "sensitive" else ""
+                print(f"  #{r.id} [{r.kind}, {r.importance:.2f}]{tag} {r.content}")
+                print(f"       {r.where(mem.tz)}")
+            return 0
+        if action == "add":
+            result = await mem.save(" ".join(rest), source="cli", channel=None, now=now)
+        elif action in ("forget", "edit"):
+            if not rest or not rest[0].lstrip("#").isdigit():
+                print(f"Which one? flins memory {action} <number>  (see: flins memory list)")
+                return 2
+            memory_id = int(rest[0].lstrip("#"))
+            if action == "forget":
+                n = await mem.forget([memory_id], via="cli")
+                print(f"Forgotten #{memory_id}." if n else f"There's no memory #{memory_id}.")
+                return 0 if n else 1
+            result = await mem.edit(memory_id, " ".join(rest[1:]), now)
+        else:  # clear
+            n = await mem.count()
+            if not n:
+                print("There are no memories.")
+                return 0
+            if not sys.stdin.isatty():
+                print("Refusing: deleting every memory needs you at an interactive terminal.")
+                return 1
+            if input(f"Delete all {n} memories? Type 'delete' to confirm: ").strip() != "delete":
+                print("Nothing deleted.")
+                return 1
+            print(f"Deleted {await mem.forget_all(via='cli')} memories.")
+            return 0
+        if result.status == "refused":
+            print(f"Not saved: {result.reason}.")
+            return 1
+        assert result.record is not None
+        word = "Already had" if result.status == "duplicate" else "Saved"
+        print(f"{word} #{result.record.id}: {result.record.content}")
+        return 0
+    finally:
+        await conn.close()
+
+
+def cmd_memory(root: Path | None, action: str, rest: list[str]) -> int:
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_memory(settings, action, rest))
+
+
 def cmd_ask(root: Path | None, text: str, *, interactive: bool) -> int:
     settings = _load(root)
     if settings is None:
@@ -1128,6 +1193,16 @@ def build_parser() -> argparse.ArgumentParser:
     chat = sub.add_parser("chat", help="talk to FLINS in this terminal (or --history / --clear)")
     chat.add_argument("--history", action="store_true", help="show recent conversation turns")
     chat.add_argument("--clear", action="store_true", help="delete all stored conversation")
+    mem = sub.add_parser(
+        "memory", help="what FLINS remembers: list, add <text>, forget <n>, edit <n> <text>, ..."
+    )
+    mem.add_argument(
+        "action",
+        nargs="?",
+        default="list",
+        choices=["list", "add", "forget", "edit", "clear", "on", "off"],
+    )
+    mem.add_argument("rest", nargs="*")
     wa = sub.add_parser("wa", help="WhatsApp sidecar commands (M1)")
     wa_sub = wa.add_subparsers(dest="wa_command", required=True)
     pair = wa_sub.add_parser("pair", help="pair FLINS as a linked device (shows a QR)")
@@ -1202,6 +1277,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_live(root, spawn=not args.no_spawn, brain=False)
     if args.command == "run":
         return cmd_live(root, spawn=not args.no_spawn, brain=True, voice=args.voice)
+    if args.command == "memory":
+        return cmd_memory(root, args.action, args.rest)
     if args.command == "ask":
         return cmd_ask(root, " ".join(args.text), interactive=False)
     if args.command == "chat":

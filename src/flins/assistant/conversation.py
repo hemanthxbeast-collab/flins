@@ -114,7 +114,7 @@ class ConversationStore:
         Command answers don't count: after "working mood till 6", your next line is a note."""
         async with self._conn.execute(
             "SELECT ts FROM conversation_turns WHERE source = ? AND role = 'assistant' "
-            "AND route IN ('chat', 'error') ORDER BY id DESC LIMIT 1",
+            "AND route IN ('chat', 'error', 'memory') ORDER BY id DESC LIMIT 1",
             (source,),
         ) as cur:
             row = await cur.fetchone()

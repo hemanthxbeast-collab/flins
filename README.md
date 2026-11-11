@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.10.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.11.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phase 1 of 9 done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1 and 2 of 9 done).
 
 ## Talk to FLINS
 ```powershell
@@ -21,12 +21,35 @@ commands still work in plain words ("I need to focus for two hours" → it asks,
 - **In your self-chat, start with its name** ("FLINS, how do I…"). That chat is also where you keep
   notes, so FLINS stays quiet unless you address it, and then keeps listening for 3 minutes.
   Change this with `assistant.self_chat` in `config/flins.yaml`.
-- **What it can't do yet, it says so.** No reminders, tasks, memory, files or live data until
+- **What it can't do yet, it says so.** No reminders, tasks, files or live data until
   the later phases. It has no tools in conversation, and a reply that claims it did something is
   replaced with an honest one.
 - **"stop" always works**, with or without an AI model.
 - Personality (name, concise/detailed, humour) is under `assistant:` in `config/flins.yaml`.
   Conversation is stored only on this PC and deleted after 30 days.
+
+## Memory
+FLINS remembers what you tell it to, and nothing else. By voice, in chat, or typed:
+
+| Say | What happens |
+|---|---|
+| "FLINS, remember that my exam is on Friday" | saved, with the date and how you told it |
+| "remember this" | saves what you just said, after you confirm |
+| "what do you remember?" / "…about the exam?" | lists memories with where each came from |
+| "why do you know that?" | shows the memories behind its last answer |
+| "forget that" / "forget about Rahul" / "forget everything" | deletes (asks first unless you just saved it) |
+| "memory off" / "memory on" | stops saving *and* using memories |
+
+It may also ask *"Should I remember this: …?"* when you mention something lasting, like a
+preference; it saves only if you say yes. Passwords, PINs, codes and card numbers are always
+refused. Health, legal and money memories are marked sensitive and used only when you bring the
+topic up. Memories are for your own conversations with FLINS; WhatsApp replies don't use them.
+
+```powershell
+uv run flins memory                     # list   (add <text>, forget <n>, edit <n> <text>, clear, on, off)
+```
+The dashboard's **Memory** page shows, edits and deletes them too. Settings: `assistant.memory`
+in `config/flins.yaml`.
 
 ## Voice
 ```powershell
@@ -258,5 +281,5 @@ npm --prefix wa-sidecar test
 
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
-[docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phase 1 (the assistant core) is done;
-phase 2 is memory.
+[docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core) and 2 (memory) are done;
+phase 3 is tasks, reminders and planning.

@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from flins.adapters.base import ContactInfo, ContactsUpsert, InboundMessage, MeInfo, SidecarHello
 from flins.assistant.chat import ChatOut
 from flins.assistant.core import BUDGET, CANT, NO_AI, Assistant
-from flins.assistant.memory import NoMemory, ProfileMemory
+from flins.assistant.memory import CombinedMemory, NoMemory, ProfileMemory
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import FrozenClock
@@ -191,7 +191,7 @@ async def test_context_has_identity_state_and_time_but_no_hardcoded_person(rig: 
     assert "mode: Working mode until 18:00" in ctx
     assert "drafts waiting for approval: 0" in ctx
     # Personal details live in config, never in the prompt files.
-    for name in ("chat_v1.md", "summary_v1.md"):
+    for name in ("chat_v1.md", "chat_v2.md", "summary_v1.md"):
         text = (PROMPTS / name).read_text(encoding="utf-8")
         assert user.name not in text and "Asia/Kolkata" not in text
 
@@ -360,8 +360,8 @@ async def test_profile_facts_are_given_with_their_source(rig: Rig) -> None:
             ],
         }
     )
-    rig.assistant._memory = ProfileMemory(about)
-    await rig.say("what do you know about me?", source="cli")
+    rig.assistant._memory = CombinedMemory(ProfileMemory(about), None, rig.settings.app.assistant)
+    await rig.say("what should I drink this morning?", source="cli")
     ctx = rig.last_context()
     assert '<what_you_know source="about_me.yaml">' in ctx
     assert "- Example fact: likes filter coffee." in ctx  # you asked, so every tier's facts
@@ -445,7 +445,7 @@ async def test_long_or_planning_requests_use_the_reasoning_model(rig: Rig) -> No
 async def test_every_turn_is_audited_without_its_text(rig: Rig) -> None:
     await rig.say("a very private question about zebras", source="cli")
     row = (await rig.audit("assistant.turn"))[-1]
-    assert row["route"] == "chat" and row["source"] == "cli" and row["prompt"] == "chat_v1"
+    assert row["route"] == "chat" and row["source"] == "cli" and row["prompt"] == "chat_v2"
     assert row["chars_in"] == len("a very private question about zebras")
     assert "zebras" not in json.dumps(row)
 

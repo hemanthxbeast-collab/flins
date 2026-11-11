@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.0: JARVIS phase 2, memory (2026-11-11)
+- **FLINS remembers what you ask it to.** "Remember that …", "remember this", "forget that",
+  "forget (everything) about X", "forget everything", "what do you remember (about X)", "why do
+  you know that", "memory on / off". All fixed phrases: they work with the AI down.
+- Every memory keeps how and when it was learned ("you told me on 11 Nov 2026 by voice"). Lists
+  and "why do you know that" are built from the stored rows, never worded by a model.
+- **Suggestions with consent:** the conversation model may propose a memory; FLINS asks "Should
+  I remember this: …?" and saves exactly that text only on "yes" (importance threshold and a
+  10-minute cooldown in config). A reply that just claims "I'll remember that" is replaced by
+  that question.
+- Passwords, PINs, OTPs, API keys and card numbers are refused. Health, legal and money memories
+  are marked sensitive and reach the model only when your message is about them.
+- Kind (semantic / episodic / relationship) and importance are scored on save; duplicates are
+  merged; memories can expire.
+- `flins memory list | add | forget | edit | clear | on | off`, and a **Memory** page on the
+  dashboard. Deleting many memories always asks first.
+- Forgetting says so when the fact is still in the recent conversation.
+- The dashboard now applies database migrations when it starts on its own.
+- Prompt `chat_v2`; migration 0012 (`memories`, `assistant_state`).
+- Tests: 768 Python (37 new), 11 Node. Eval unchanged: 0 unsafe of 162.
+
 ## 0.10.0: JARVIS phase 1, the assistant core (2026-11-11)
 - **FLINS holds a conversation.** Everything you say to it, on any channel, now goes through one
   core (`flins.assistant`): fixed commands first (no AI), then free-form commands with

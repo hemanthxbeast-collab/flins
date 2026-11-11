@@ -81,6 +81,13 @@ assistant:
   session_idle_minutes: 30      # a quiet gap this long starts a new conversation
   keep_days: 30                 # conversation is deleted after this (flins chat --clear: now)
   use_about_me: true            # give the model your about_me.yaml facts
+  memory:                       # long-term memory: only what you ask for or agree to
+    enabled: true               # false = no memory at all
+    suggest: true               # FLINS may ask "Should I remember this: ...?"
+    suggest_min_importance: 0.8 # only for things it rates this useful (0 to 1)
+    suggest_cooldown_minutes: 10  # at most one such question in this many minutes
+    max_in_context: 16          # memories the model sees per message
+    pinned: 6                   # of those, your standing preferences
   reasoning:                    # when to use the `reason` model instead of `chat`
     min_chars: 280
     cues: [plan, step by step, compare, pros and cons, trade-off, debug, design, strategy,

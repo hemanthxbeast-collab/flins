@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Protocol
 
 from flins.assistant.chat import ChatEngine, ChatOut, Role, Summariser
 from flins.assistant.context import ContextBuilder, TurnContext
 from flins.assistant.conversation import ConversationStore, Session
-from flins.assistant.memory import MemoryStore, NoMemory
-from flins.assistant.models import SOURCES, Reply, Route
+from flins.assistant.memory import MemoryStore, NoMemory, SqlMemory, is_secret
+from flins.assistant.memory_commands import MemoryCommands
+from flins.assistant.models import SOURCES, MemoryItem, Reply, Route
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock
@@ -46,7 +48,8 @@ SUMMARY_SLACK = 6  # fold old turns into the summary once this many pile up beyo
 
 CANT = (
     "I can't do that yet. For now I can talk things through and run my built-in commands: "
-    "modes, stop and resume, approvals, sending a message you dictate, and what you missed."
+    "modes, stop and resume, approvals, sending a message you dictate, what you missed, and "
+    "remembering things when you say 'remember that …'."
 )
 NO_AI = (
     "I can only run commands right now, because no AI model is set up (see `flins llm status`). "
@@ -67,6 +70,9 @@ class Commands(Protocol):
     """The command executor (core/commands.py CommandRouter in conversational mode)."""
 
     async def handle_text(self, text: str, *, source: str) -> str | None: ...
+    def awaiting(self, source: str) -> bool: ...
+    def awaiting_answer(self, source: str) -> bool: ...
+    def confirm(self, source: str, question: str, run: Callable[[], Awaitable[str]]) -> str: ...
 
 
 class ModeView(Protocol):
@@ -90,6 +96,8 @@ class Assistant:
         gateway: LLMGateway | None = None,
         memory: MemoryStore | None = None,
         approvals: ApprovalService | None = None,
+        stored: SqlMemory | None = None,
+        memory_commands: MemoryCommands | None = None,
     ) -> None:
         self._commands = commands
         self._store = store
@@ -102,6 +110,10 @@ class Assistant:
         self._gateway = gateway
         self._memory: MemoryStore = memory or NoMemory()
         self._approvals = approvals
+        self._stored = stored  # long-term memory you can add to; None = not available
+        self._memory_cmds = memory_commands
+        self._last_used: dict[str, list[MemoryItem]] = {}  # per channel: memories last shown
+        self._last_suggest: datetime | None = None
         self._context = ContextBuilder(policy, cfg)
 
     @property
@@ -120,6 +132,22 @@ class Assistant:
         text = text.strip()
         if not text:
             return Reply(None, "silent", ["empty"])
+
+        # 0. Memory commands ("remember that ...", "forget that", "why do you know that"):
+        #    fixed phrases, no model. Not while FLINS asked an open question (then your words
+        #    are its answer), and in your self-chat only when you're talking to it.
+        if (
+            self._memory_cmds is not None
+            and not self._commands.awaiting_answer(source)
+            and (source != "self_chat" or await self._for_me(text, source, now))
+        ):
+            said = await self._memory_cmds.handle(
+                text, source, now, self._last_used.get(source, [])
+            )
+            if said is not None:
+                reply = Reply(said, "command", ["memory command"])
+                await self._finish(text, source, now, reply, started)
+                return reply
 
         # 1. Commands. Fixed phrases are matched without any model, so the kill switch never
         #    depends on one. Free-form commands are read back and wait for "yes".
@@ -180,8 +208,58 @@ class Assistant:
             return Reply(ai_down(str(exc)[:120]), "error", [*stages, "model failed"], role)
         flagged = self._check(out)
         if flagged:
+            # The model said it did or will remember something. It can't, so its words are
+            # dropped. If what it wanted was to keep a fact, ask you instead (the honest
+            # version of the same thing); otherwise say plainly that it can't.
+            question = await self._suggest_memory(out, source, now)
+            if question is not None:
+                steps = [*stages, "reply replaced", "memory suggested"]
+                return Reply(question, "chat", steps, role, flagged)
             return Reply(CANT, "chat", [*stages, "reply replaced"], role, flagged)
-        return Reply(out.reply.strip(), "chat", [*stages, out.kind], role)
+        said = out.reply.strip()
+        stages.append(out.kind)
+        question = await self._suggest_memory(out, source, now)
+        if question is not None:
+            said = f"{said}\n{question}"
+            stages.append("memory suggested")
+        return Reply(said, "chat", stages, role)
+
+    async def _suggest_memory(self, out: ChatOut, source: str, now: datetime) -> str | None:
+        """The model may *propose* a memory. FLINS asks you; only "yes" saves it, and exactly
+        the text you were shown."""
+        m = self._cfg.memory
+        fact = " ".join((out.remember or "").split())
+        if (
+            self._stored is None
+            or not (m.enabled and m.suggest)
+            or not 5 <= len(fact) <= 300
+            or (out.remember_importance or 0.0) < m.suggest_min_importance
+            or self._commands.awaiting(source)
+            or is_secret(fact)
+        ):
+            return None
+        cooldown = timedelta(minutes=m.suggest_cooldown_minutes)
+        if self._last_suggest is not None and now - self._last_suggest < cooldown:
+            return None
+        if not await self._stored.enabled() or await self._stored.duplicate_of(fact):
+            return None
+        stored, kind, importance = self._stored, out.remember_kind, out.remember_importance
+
+        async def run() -> str:
+            result = await stored.save(
+                fact,
+                source="suggested",
+                channel=source,
+                now=self._clock.now(),
+                kind=kind,
+                importance=importance,
+            )
+            if result.status == "refused":
+                return f"I won't save that: {result.reason}."
+            return "Okay, I'll remember that."
+
+        self._last_suggest = now
+        return self._commands.confirm(source, f'Should I remember this: "{fact}"?', run)
 
     async def _turn_context(
         self, text: str, source: str, now: datetime, session: Session
@@ -190,9 +268,8 @@ class Assistant:
         pending = None
         if self._approvals is not None:
             pending = len(await self._approvals.pending(now))
-        memories = []
-        if self._cfg.use_about_me and self._cfg.max_facts:
-            memories = await self._memory.relevant(text, self._cfg.max_facts)
+        memories = await self._memory.relevant(text, self._cfg.max_facts)
+        self._last_used[source] = memories  # for "why do you know that?"
         return TurnContext(
             text=text,
             source=source,
@@ -223,8 +300,9 @@ class Assistant:
         session = await self._store.session(now)
         await self._store.add(session, role="user", text=text, source=source, now=now)
         assert reply.text is not None
+        stored_as = "memory" if "memory command" in reply.stages else reply.route
         await self._store.add(
-            session, role="assistant", text=reply.text, source=source, now=now, route=reply.route
+            session, role="assistant", text=reply.text, source=source, now=now, route=stored_as
         )
         await self._maybe_summarise(session)
         route: Route = reply.route

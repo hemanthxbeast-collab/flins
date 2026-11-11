@@ -160,6 +160,12 @@ class CommandRouter:
         p, f = self._pending.get(source), self._follow.get(source)
         return bool((p and p.expires > now) or (f and f.expires > now))
 
+    def awaiting_answer(self, source: str) -> bool:
+        """True while FLINS asked an open question ("What should I tell Rahul?"): your next
+        words are the answer, whatever they say."""
+        f = self._follow.get(source)
+        return bool(f and f.expires > self._clock.now())
+
     async def handle_text(self, text: str, *, source: str) -> str | None:
         """Run a command. Returns reply text, or None if `text` isn't a command."""
         now = self._clock.now()
@@ -259,6 +265,10 @@ class CommandRouter:
         return await self._modes.summary_text()
 
     # ------------------------------------------------------------------ Tier B
+
+    def confirm(self, source: str, question: str, run: Callable[[], Awaitable[str]]) -> str:
+        """Ask a yes/no question; `run` happens only if the next answer is yes (60 s)."""
+        return self._confirm(source, question, run)
 
     def _confirm(self, source: str, question: str, run: Callable[[], Awaitable[str]]) -> str:
         self._pending[source] = _Confirmation(question, run, self._clock.now() + CONFIRM_FOR)

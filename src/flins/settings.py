@@ -123,6 +123,18 @@ class ReasoningConfig(_Strict):
     )
 
 
+class MemoryConfig(_Strict):
+    """Long-term memory. Nothing is saved unless you say "remember that ..." or answer yes
+    when FLINS asks whether it should remember something."""
+
+    enabled: bool = True
+    suggest: bool = True  # FLINS may ask "Should I remember that ...?"
+    suggest_min_importance: float = Field(default=0.8, ge=0, le=1)
+    suggest_cooldown_minutes: int = Field(default=10, ge=0, le=24 * 60)
+    max_in_context: int = Field(default=16, ge=0, le=100)  # memories the model sees per turn
+    pinned: int = Field(default=6, ge=0, le=50)  # of those, standing ones (preferences etc.)
+
+
 class AssistantConfig(_Strict):
     """The conversational core (docs/JARVIS_ARCHITECTURE.md). Personality lives here, not in
     code: FLINS's name, how it talks, and when it may speak up in your self-chat."""
@@ -143,6 +155,7 @@ class AssistantConfig(_Strict):
     use_about_me: bool = True  # give the model your about_me.yaml facts
     max_facts: int = Field(default=40, ge=0, le=200)
     reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
 
 class AppConfig(_Strict):

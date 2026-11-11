@@ -26,6 +26,11 @@ class ChatOut(BaseModel):
     reply: str = Field(max_length=6000)
     kind: Literal["answer", "clarify", "cannot"]
     claims_action: bool  # the reply says or implies FLINS did / will do / will remember something
+    # A lasting fact, preference or decision the user just stated that may be worth keeping.
+    # Only a proposal: FLINS asks the user, and saves it only on "yes".
+    remember: str | None = Field(default=None, max_length=400)
+    remember_kind: Literal["semantic", "episodic", "relationship"] | None = None
+    remember_importance: float | None = Field(default=None, ge=0, le=1)
 
 
 CHAT_SCHEMA: dict[str, Any] = {
@@ -34,8 +39,21 @@ CHAT_SCHEMA: dict[str, Any] = {
         "reply": {"type": "string"},
         "kind": {"type": "string", "enum": ["answer", "clarify", "cannot"]},
         "claims_action": {"type": "boolean"},
+        "remember": {"type": ["string", "null"]},
+        "remember_kind": {
+            "type": ["string", "null"],
+            "enum": ["semantic", "episodic", "relationship", None],
+        },
+        "remember_importance": {"type": ["number", "null"]},
     },
-    "required": ["reply", "kind", "claims_action"],
+    "required": [
+        "reply",
+        "kind",
+        "claims_action",
+        "remember",
+        "remember_kind",
+        "remember_importance",
+    ],
     "additionalProperties": False,
 }
 

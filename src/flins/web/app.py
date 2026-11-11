@@ -29,7 +29,7 @@ from flins.core.audit import AuditLog
 from flins.core.autonomy import auto_stats, set_optin
 from flins.core.clock import Clock, SystemClock, from_iso, to_iso
 from flins.core.commands import CommandRouter
-from flins.core.db import connect
+from flins.core.db import connect, migrate
 from flins.core.events import EventBus
 from flins.core.levels import Level
 from flins.core.modes import ModeManager
@@ -41,7 +41,7 @@ from flins.skilldev.workspace import NAME, WorkspaceError
 from flins.skills.engine import SkillEngine
 from flins.skills.lock import LOCK_FILE, SkillLock
 from flins.web.qr import qr_svg, read_pair_state
-from flins.wiring import conversation_store, start_assistant
+from flins.wiring import conversation_store, memory_store, start_assistant
 
 TIERS = ["inner", "trusted", "known", "unknown", "blocked"]
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -67,6 +67,13 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # A dashboard started on its own (`flins dashboard`) may see a database from an older
+        # version: bring it up to date before any page reads the newer tables.
+        conn = await connect(db_path)
+        try:
+            await migrate(conn)
+        finally:
+            await conn.close()
         yield
         if app.state.assistant_rt is not None:  # the standalone dashboard's own core
             await app.state.assistant_rt.close()
@@ -393,6 +400,72 @@ def create_app(
         if said:
             await (await get_assistant()).handle(said, source="dashboard")
         return RedirectResponse("/chat#say", status_code=303)
+
+    # ------------------------------------------------------------------ memory (J2)
+
+    def need_settings() -> Settings:
+        if settings is None:
+            raise HTTPException(status_code=404, detail="not available here")
+        return settings
+
+    @app.get("/memory", response_class=HTMLResponse)
+    async def memory_page(request: Request) -> HTMLResponse:
+        s = need_settings()
+        async with db() as conn:
+            mem = memory_store(s, conn, clk)
+            records = await mem.all(clk.now())
+            rows = [
+                {
+                    "id": r.id,
+                    "kind": r.kind,
+                    "content": r.content,
+                    "where": r.where(mem.tz),
+                    "importance": r.importance,
+                    "sensitive": r.privacy == "sensitive",
+                    "uses": r.uses,
+                }
+                for r in records
+            ]
+            on = await mem.enabled()
+        return page(
+            request,
+            "memory.html",
+            rows=rows,
+            memory_on=on and s.app.assistant.memory.enabled,
+            config_off=not s.app.assistant.memory.enabled,
+            assistant_name=s.app.assistant.name,
+            mode=await mode_text(),
+        )
+
+    @app.post("/memory")
+    async def memory_change(
+        action: str = Form(...),
+        token: str = Form(...),
+        text: str = Form(""),
+        memory_id: int = Form(0),
+    ) -> RedirectResponse:
+        check_token(token)
+        s = need_settings()
+        msg = ""
+        async with db() as conn:
+            mem = memory_store(s, conn, clk)
+            if action == "add":
+                r = await mem.save(text, source="dashboard", channel=None, now=clk.now())
+                msg = {"saved": "Saved.", "duplicate": "I already had that."}.get(
+                    r.status, f"Not saved: {r.reason}."
+                )
+            elif action == "edit":
+                r = await mem.edit(memory_id, text, clk.now())
+                msg = "Updated." if r.status == "saved" else f"Not changed: {r.reason}."
+            elif action == "delete":
+                n = await mem.forget([memory_id], via="dashboard")
+                msg = "Forgotten." if n else "That memory doesn't exist."
+            elif action in ("on", "off"):
+                await mem.set_enabled(action == "on")
+                msg = f"Memory is {action}."
+            else:
+                raise HTTPException(status_code=400, detail="unknown action")
+        return RedirectResponse(f"/memory?msg={quote(msg)}", status_code=303)
 
     # ------------------------------------------------------------------ WhatsApp pairing
 

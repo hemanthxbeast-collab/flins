@@ -2,6 +2,42 @@
 
 Short records of choices made while building. Newest first.
 
+## JARVIS phase 2: memory (2026-11-11)
+Plan: `docs/milestones/J2.md`.
+- **Writes are explicit or confirmed, never silent.** The model can only fill a `remember`
+  field; the core turns it into a yes/no question using the router's existing confirmation, and
+  saves the exact text shown. This is the cautious reading of "learn preferences" + "don't
+  blindly save every conversation".
+- **Memory commands are regexes, not AI.** They run before the router's free-form step, so they
+  work offline and can't be misread into something else. Trade-off: unusual phrasings ("could
+  you hold on to the fact that…") fall through to conversation, where the model proposes it.
+- **"Remember to …" is a reminder, not a memory.** FLINS says reminders don't exist yet instead
+  of storing a to-do as a fact (phase 3).
+- **An open question beats a memory command** ("What should I tell Rahul?" → "remember to bring
+  the charger" is the message), but a pending yes/no doesn't block them.
+- **Self-chat:** memory commands follow the same rule as conversation: only when addressed or
+  while the conversation is open, so a note like "remember milk" isn't stored.
+- **Secrets are refused by pattern** (password, OTP, CVV, PIN but not "pin code", API key,
+  12–19 digit numbers). The database isn't a vault; this errs toward refusing.
+- **Sensitive = health / legal / money** (the same patterns as the WhatsApp hard rule). Such
+  memories are never in the always-included set; they reach the model only on a keyword match.
+- **Retrieval is keyword scoring** (rarer shared words score higher) plus up to 6 standing
+  high-importance preferences. No embeddings yet: one less dependency and nothing extra sent
+  anywhere; the `embed` role is reserved.
+- **Memories stay in the owner zone.** The WhatsApp pipeline never reads them (tested by a code
+  scan). Whether contacts' replies may use any is a phase-6 decision.
+- **Forgetting is a hard delete**, audited by id without content. The audit log never holds
+  memory text.
+- **Found by the live test (Groq):** (1) the model answered a stated preference with "I'll
+  remember that", and the action-claim guard replaced the whole reply with "can't do that",
+  losing the suggestion; now the suggestion question replaces the reply. (2) A forgotten fact
+  was still visible in recent turns; the forget reply now says so. (3) Some chat calls took
+  3–12 s with no error or fallback: Groq-side latency (likely free-tier rate limiting), not
+  FLINS.
+- Not done here: voice-friendly shortening of long memory lists, correcting a memory by voice
+  in one step (use "forget that" + "remember that …", or the dashboard), automatic episodic
+  memories from conversation summaries.
+
 ## JARVIS phase 1: assistant core (2026-11-11)
 Plan and target architecture: `docs/JARVIS_ARCHITECTURE.md`.
 - **The core wraps the router; it doesn't replace it.** `CommandRouter` keeps all command

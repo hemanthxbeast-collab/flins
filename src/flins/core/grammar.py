@@ -143,6 +143,11 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def strip_address(text: str) -> str:
+    """'FLINS, remember that I like tea, please.' -> 'remember that I like tea'."""
+    return _normalise(text)
+
+
 def _full(patterns: list[str], text: str) -> bool:
     return any(re.fullmatch(p, text) for p in patterns)
 

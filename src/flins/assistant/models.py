@@ -50,5 +50,8 @@ class MemoryItem:
     """One thing FLINS knows, with where it came from (never invented)."""
 
     content: str
-    source: str  # e.g. "about_me.yaml"
+    source: str  # "about_me.yaml", or "you told me on 11 Nov 2026 by voice"
     kind: Literal["semantic", "episodic", "task", "relationship"] = "semantic"
+    origin: Literal["profile", "memory"] = "profile"
+    id: int | None = None  # the memories row, for stored memories
+    matched: bool = False  # it shares words with the message (vs. always-included)
