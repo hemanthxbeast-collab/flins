@@ -6,7 +6,7 @@ and the git history. `docs/SPEC.md` stays the source of truth for the WhatsApp s
 This document describes how FLINS grows from a messaging assistant into one personal assistant
 **without a rewrite**.
 
-**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3 (tasks and reminders 0.13.0, planning 0.14.0; [milestones/J3.md](milestones/J3.md), [J3b.md](milestones/J3b.md)) and phase 4a (tools, 0.15.0; [J4.md](milestones/J4.md)). Next: phase 4b (online tools).
+**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3 (tasks and reminders 0.13.0, planning 0.14.0; [milestones/J3.md](milestones/J3.md), [J3b.md](milestones/J3b.md)) and phase 4 (tools 0.15.0, online tools 0.16.0; [J4.md](milestones/J4.md), [J4b.md](milestones/J4b.md)). Next: phase 5 (voice).
 
 ## 1. Where FLINS is today
 
@@ -91,7 +91,7 @@ work. Nothing below is replaced; the boxes marked ★ are new.
 | State | `ModeManager`, approvals, outbox, tasks (phase 3) |
 | Intent | Tier A grammar, then `IntentParser` (Tier B) |
 | Planning | `assistant/plans.py` (phase 3b): a plan is ordered tasks, saved on your yes. Tool steps with input/output/retry and approval gates come with phase 4 |
-| Tool selection | `assistant/tools/`: the chat model asks for a tool by name, the core checks and runs it (phase 4a). Owner-callable sandboxed skills later |
+| Tool selection | `assistant/tools/`: the chat model asks for a tool by name, the core checks and runs it (phase 4a). Online tools (weather, Wikipedia, GitHub) go through one fetcher with a fixed host list (phase 4b). Owner-callable sandboxed skills later |
 | Execution | Command executor (router) now; skill sandbox for tools |
 | Permissions / safety | Policy engine, capability scopes on skills, approvals, kill switch |
 | Communication | Output adapters: TTS, self-chat notifier, CLI, dashboard |

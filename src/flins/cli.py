@@ -1027,6 +1027,16 @@ def cmd_tools(root: Path | None, action: str, rest: list[str]) -> int:
             state = "on " if box.get(t.name) else "off"
             asks = "  (asks you first)" if t.risk == "write" else ""
             print(f"  [{state}] {t.name:<13} {t.risk:<8} {t.description}{asks}")
+        if not cfg.online.enabled:
+            print(
+                "  Online tools are off. To switch them on, set "
+                "assistant.tools.online.enabled: true in config/flins.yaml."
+            )
+        elif not cfg.online.wikipedia_contact:
+            print(
+                "  wikipedia is off: Wikipedia only answers clients that give a contact. Set "
+                "assistant.tools.online.wikipedia_contact (a URL or email of yours)."
+            )
         if not cfg.folders:
             print(
                 "  File tools are off: no folders are approved. Add some under "

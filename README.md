@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.15.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.16.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3 and 4a done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3 and 4 done).
 
 ## Talk to FLINS
 ```powershell
@@ -134,7 +134,8 @@ When a question needs it, FLINS uses a tool instead of guessing. You just ask no
 
 How it stays safe:
 - The AI model can only *ask* for a tool. FLINS's code checks the request and runs it. No tool
-  can send a message, set a reminder, change a mode or go online.
+  can send a message, set a reminder or change a mode, and the tools in this table never go
+  online.
 - **File access is off until you list folders** under `assistant.tools.folders` in
   `config/flins.yaml`. It can't leave those folders, skips hidden files, and refuses key,
   password and credential files, non-text files and large files. FLINS's own `data/` folder and
@@ -150,6 +151,47 @@ uv run flins tools                                  # what is on, and each tool'
 uv run flins tools run calculator "15% of 240"      # try one directly
 ```
 Settings: `assistant.tools` (`enabled`, `allow`, `folders`, `max_rounds`).
+
+### Online tools (off until you switch them on)
+Three tools can look things up on the internet. They need no account:
+"what's the weather in Pune?", "will it rain tomorrow?", "look up the Carnot cycle on Wikipedia",
+"what are the open issues in astral-sh/uv?", "show my repos".
+
+| Tool | Where it asks | What is sent |
+|---|---|---|
+| `weather` | Open-Meteo | a place name |
+| `wikipedia` | English Wikipedia | a topic (and your contact, see below) |
+| `github` | GitHub (read-only) | a repository or user name |
+
+To switch them on, add this to `config/flins.yaml`:
+```yaml
+assistant:
+  tools:
+    online:
+      enabled: true
+      weather_place: "Hyderabad"        # optional: your usual place
+      github_user: your-github-name     # optional: for "show my repos"
+      wikipedia_contact: "https://github.com/your-github-name"   # needed for wikipedia
+```
+- **Wikipedia needs a contact.** It refuses automated clients that don't give a URL or email
+  address. FLINS doesn't invent one: until you set `wikipedia_contact`, the wikipedia tool
+  stays off. Your contact is sent to Wikipedia only.
+- **Only the subject is sent**, never your messages, contacts or memories. Code checks this:
+  input with an email address, a phone number, a long number or a password is refused, the
+  weather tool accepts only a place name, and the GitHub tool only fixed forms.
+- **It can't reach anything else.** One piece of code makes every request: read-only, https
+  only, to four fixed addresses, and it never follows a redirect.
+- **What comes back is data.** After an online result FLINS can't use another tool or suggest a
+  memory in that turn, so a web page can't make it do something. For the same reason, text
+  from one of your files can't be sent online in the same turn.
+- **GitHub token (optional).** Put `GITHUB_TOKEN=...` in `.env` to see your private repositories
+  and get a higher hourly limit. It is sent to GitHub only. Without it you get 60 lookups an hour.
+- Not available yet: general web search and news. Those need an account with a search service.
+
+```powershell
+uv run flins tools run weather "Pune"
+uv run flins tools run github "astral-sh/uv releases"
+```
 
 ## Voice
 ```powershell
@@ -382,4 +424,4 @@ npm --prefix wa-sidecar test
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
 [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core), 2 (memory), L (local
-models), 3 (tasks, reminders and planning) and 4a (tools: calculator, dates, notes, files) are done; next is 4b (online tools: weather, search, GitHub).
+models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) are done; next is phase 5 (voice).

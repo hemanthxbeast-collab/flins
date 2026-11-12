@@ -179,6 +179,22 @@ class CodingConfig(_Strict):
     )
 
 
+class OnlineToolsConfig(_Strict):
+    """Tools that send their input to a public service (docs/milestones/J4b.md). Off until
+    you switch them on. Only a place name, a topic or a repository name is ever sent."""
+
+    enabled: bool = False
+    allow: list[str] = Field(default_factory=lambda: ["weather", "wikipedia", "github"])
+    weather_place: str | None = Field(default=None, max_length=80)  # "what's the weather?"
+    # Wikipedia refuses automated clients that give no contact. A URL or email of yours; it is
+    # sent to Wikipedia only. Without it the wikipedia tool stays off.
+    wikipedia_contact: str | None = Field(
+        default=None, max_length=100, pattern=r"^(https://[^\s()]+|[^\s@()]+@[^\s@()]+\.[^\s@()]+)$"
+    )
+    github_user: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
+    github_token_env: str = "GITHUB_TOKEN"  # optional, in .env: private repos, higher limits
+
+
 class ToolsConfig(_Strict):
     """Tools FLINS may use to answer you (docs/milestones/J4.md). The model can only ask for
     a tool; code runs it. Write tools always ask you first."""
@@ -200,6 +216,7 @@ class ToolsConfig(_Strict):
     folders: list[Path] = Field(default_factory=list, max_length=20)
     max_file_kb: int = Field(default=200, ge=1, le=2000)
     max_rounds: int = Field(default=2, ge=1, le=3)  # tool uses per message
+    online: OnlineToolsConfig = Field(default_factory=OnlineToolsConfig)
 
 
 class AssistantConfig(_Strict):

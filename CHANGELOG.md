@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.16.0: phase 4b, online tools (2026-11-12)
+- **Three tools that go online, off by default**: `weather` (Open-Meteo: now and three days),
+  `wikipedia` (an article's introduction) and `github` (read-only: repository summary, open
+  issues, pull requests, commits, releases, a user's repositories). No account is needed.
+  Switch on with `assistant.tools.online.enabled: true`.
+- **One door out** (`tools/net.py`): GET only, https only, four hosts fixed in code, no
+  redirects, 1 MB and 5 s limits. A test fails if any other tool file imports a network library.
+- **What is sent is checked by code**: short, and never an email address, phone number, long
+  number or anything that looks like a secret. `weather` takes only a place name, `github` only
+  its fixed forms; the model never builds a URL.
+- **Results are outside content**: no further tool and no memory suggestion in that turn. A
+  file's text therefore can't be sent online in the same turn.
+- **Wikipedia needs a contact** (it answers 403 without a URL or email in the User-Agent). The
+  tool exists only when you set `wikipedia_contact`; it is sent to Wikipedia only.
+- Optional `GITHUB_TOKEN` in `.env`, sent only to `api.github.com`, never shown or logged.
+- New risk level `online`; a tool can have its own time limit (online tools: 12 s).
+- Prompt `chat_v6`; `flins tools` lists the online tools and says why one is off.
+- Live check against the real services: weather (2 places, 1 unknown place), Wikipedia
+  (2 topics, 1 with no result), GitHub (summary, releases, issues, a user's repositories, a
+  missing repository) all returned what they should.
+- Not built: general web search and news (need an account with a search provider).
+- Tests: 975 Python (61 new, no network), 11 Node. Eval unchanged: 0 unsafe of 162.
+
 ## 0.15.0: phase 4a, tools (2026-11-11)
 - **FLINS can use tools to answer you.** The conversation model may ask for a tool; code checks
   the name against the allowed list, applies the risk gate, runs it and hands the result back

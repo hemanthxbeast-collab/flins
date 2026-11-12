@@ -2,6 +2,31 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 4b: online tools (2026-11-12)
+- **Off by default.** These are the first tools whose input leaves the PC, so switching them on
+  is the user's decision, like approving folders for the file tools.
+- **Weather, Wikipedia, GitHub; no general search.** The three chosen need no account. Every
+  usable web search service needs a key and a choice of provider, which is the user's to make.
+  The fetcher and the outside-content rule are what a search tool would plug into.
+- **No confirmation per lookup, a strict input check instead.** Asking yes / no before every
+  weather question would make the tools useless by voice. Instead: off until enabled, input
+  checked by code (short, no personal details, fixed forms), and an audit row per use.
+- **Hosts are fixed in code, not config.** A config-driven allow list is one typo or one
+  injected edit away from an open proxy. Adding a host is a code change with a test.
+- **Wikipedia's contact is the user's to give.** Wikimedia rejects clients with no URL or email
+  in the User-Agent (seen live: 403). FLINS never sends the user's details on its own, and a
+  made-up contact would be dishonest, so the tool is absent until `wikipedia_contact` is set.
+  Weather and GitHub get a generic User-Agent with no contact.
+- **Cross-turn leak is accepted and noted.** The taint rule is per turn. Text from a file read
+  in one turn is in the conversation history, so a later turn's lookup could in principle
+  include a few words of it. The input check (100 characters, no numbers / addresses /
+  secrets) bounds this, and online tools are opt-in. A stricter "no online tools in a session
+  that read a file" rule is possible if wanted.
+- **Model answers from GitHub / Wikipedia text are still the model's words.** The result is
+  labelled as data and the prompt says to name the source; FLINS does not verify the summary.
+- **Pydantic models for every response** (the process-boundary rule): unknown fields ignored,
+  a wrong shape becomes "couldn't read the answer", never a crash.
+
 ## Phase 4a: tools (2026-11-11)
 - **The model asks, code runs.** `tool` / `tool_input` are two more fields in the chat JSON.
   This keeps one model call for ordinary turns (a separate "which tool?" call would have added

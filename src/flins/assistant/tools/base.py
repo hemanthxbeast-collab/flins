@@ -19,7 +19,9 @@ from flins.llm.context import neutralise
 # read     harmless lookups and maths: runs straight away
 # private  reads your own files: runs only inside folders you approved
 # write    changes something on disk: never runs without your yes to the exact content
-Risk = Literal["read", "private", "write"]
+# online   sends its input to a public service (phase 4b): off until you switch it on, and
+#          only through tools/net.py
+Risk = Literal["read", "private", "write", "online"]
 
 MAX_INPUT_CHARS = 2000
 MAX_RESULT_CHARS = 4000
@@ -47,6 +49,7 @@ class Tool:
     outside_content: bool = False
     # For write tools: the yes/no question shown before anything is written.
     confirm: Callable[[str], str] | None = None
+    timeout_s: float | None = None  # its own limit (online tools); None = the tool box's
 
     def line(self) -> str:
         return f"{self.name}: {self.description} Input: {self.usage}"
@@ -93,7 +96,8 @@ class ToolBox:
             result = fail(f"The input is too long (over {MAX_INPUT_CHARS} characters).")
         else:
             try:
-                result = await asyncio.wait_for(tool.run(arg, now), self._timeout)
+                limit = tool.timeout_s or self._timeout
+                result = await asyncio.wait_for(tool.run(arg, now), limit)
             except TimeoutError:
                 result = fail(f"{tool.name} took too long and was stopped.")
             except Exception as exc:  # a tool bug must not break the conversation

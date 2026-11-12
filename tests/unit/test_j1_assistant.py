@@ -204,6 +204,7 @@ async def test_context_has_identity_state_and_time_but_no_hardcoded_person(rig: 
         "chat_v3.md",
         "chat_v4.md",
         "chat_v5.md",
+        "chat_v6.md",
         "plan_v1.md",
         "summary_v1.md",
     ):

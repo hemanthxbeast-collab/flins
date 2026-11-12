@@ -109,6 +109,14 @@ assistant:
                                 # (a cloud provider, unless your chat model is local).
     max_file_kb: 200
     max_rounds: 2               # tool uses per message
+    online:                     # tools that go online. Off until you set enabled: true.
+      enabled: false            # Only a place name, a topic or a repository name is sent,
+      allow: [weather, wikipedia, github]   # and only to Open-Meteo, Wikipedia and GitHub.
+      weather_place: null       # your usual place, e.g. "Hyderabad" ("what's the weather?")
+      wikipedia_contact: null   # Wikipedia only answers clients that give a contact: a URL
+                                # or email of yours, sent to Wikipedia only. null = tool off.
+      github_user: null         # your GitHub username ("show my repos")
+      github_token_env: GITHUB_TOKEN   # optional token in .env (private repos, higher limits)
   voice_big_models: false       # true = spoken reasoning / coding questions may use the
                                 # bigger models (sensible with local models; slower to answer)
   reasoning:                    # when to use the `reason` model instead of `chat`

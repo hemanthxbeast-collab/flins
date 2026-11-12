@@ -22,7 +22,11 @@ from flins.assistant.tools import Tool, ToolBox
 from flins.assistant.tools.calc import CALCULATOR
 from flins.assistant.tools.dates import make_date_tool
 from flins.assistant.tools.files import Folders, make_file_tools
+from flins.assistant.tools.github import make_github_tool
+from flins.assistant.tools.net import Fetcher
 from flins.assistant.tools.notes import make_note_tools
+from flins.assistant.tools.weather import make_weather_tool
+from flins.assistant.tools.wiki import make_wiki_tool
 from flins.core.approvals import ApprovalService
 from flins.core.audit import AuditLog
 from flins.core.clock import Clock, SystemClock
@@ -212,8 +216,11 @@ def task_store(settings: Settings, conn: aiosqlite.Connection) -> TaskStore:
     return TaskStore(conn, ZoneInfo(settings.policy.user.timezone))
 
 
-def all_tools(settings: Settings) -> list[Tool]:
-    """Every built-in tool that exists with this config (file tools need approved folders)."""
+NO_CONTACT = "no contact given"  # the wikipedia tool is never in the tool box like this
+
+
+def local_tools(settings: Settings) -> list[Tool]:
+    """Built-in tools that never leave the PC (file tools need approved folders)."""
     cfg = settings.app.assistant.tools
     tz = ZoneInfo(settings.policy.user.timezone)
     folders = Folders(
@@ -229,13 +236,36 @@ def all_tools(settings: Settings) -> list[Tool]:
     ]
 
 
+def online_tools(settings: Settings) -> list[Tool]:
+    """Tools that go online (phase 4b). Building them contacts nothing."""
+    cfg = settings.app.assistant.tools.online
+    fetcher = Fetcher()
+    return [
+        make_weather_tool(fetcher, cfg.weather_place),
+        make_wiki_tool(fetcher, cfg.wikipedia_contact or NO_CONTACT),
+        make_github_tool(fetcher, cfg.github_user, settings.env_value(cfg.github_token_env)),
+    ]
+
+
+def all_tools(settings: Settings) -> list[Tool]:
+    """Every built-in tool that exists with this config, on or off."""
+    return [*local_tools(settings), *online_tools(settings)]
+
+
 def tool_box(settings: Settings) -> ToolBox:
-    """The tools the assistant may use: built-ins that are on the allow list."""
+    """The tools the assistant may use: local ones on the allow list, and online ones only
+    when you switched them on."""
     cfg = settings.app.assistant.tools
     if not cfg.enabled:
         return ToolBox([])
     allowed = {name.strip().lower() for name in cfg.allow}
-    return ToolBox([t for t in all_tools(settings) if t.name in allowed])
+    tools = [t for t in local_tools(settings) if t.name in allowed]
+    if cfg.online.enabled:
+        online = {name.strip().lower() for name in cfg.online.allow}
+        if not cfg.online.wikipedia_contact:
+            online.discard("wikipedia")  # Wikipedia refuses clients with no contact
+        tools += [t for t in online_tools(settings) if t.name in online]
+    return ToolBox(tools)
 
 
 def plan_store(settings: Settings, conn: aiosqlite.Connection) -> PlanStore:

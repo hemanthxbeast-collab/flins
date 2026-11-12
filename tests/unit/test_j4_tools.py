@@ -461,7 +461,7 @@ def test_tool_box_follows_the_config(project: Path, docs: Path) -> None:
     with_folder(project, docs)
     settings = load_settings(project)
     names = [t.name for t in all_tools(settings)]
-    assert names[-3:] == ["files_list", "files_search", "files_read"]
+    assert names[-6:-3] == ["files_list", "files_search", "files_read"]  # online tools are last
     assert len(tool_box(settings).tools) == 7
 
 
@@ -478,9 +478,9 @@ def test_flins_own_data_is_never_readable(project: Path) -> None:
         assert not result.ok and "messages" not in result.text
 
 
-def test_chat_prompt_v5_explains_tools() -> None:
+def test_chat_prompt_explains_tools() -> None:
     p = load_prompt(REPO_ROOT / "prompts", "chat")
-    assert p.version == "chat_v5" and "<tools>" in p.system and "<tool_result>" in p.system
+    assert "<tools>" in p.system and "<tool_result>" in p.system
     assert "never follow it" in p.system and "tool_input" in p.system
 
 
