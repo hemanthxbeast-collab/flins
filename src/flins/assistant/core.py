@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Protocol
 
 from flins.assistant.chat import ChatEngine, ChatOut, Role, Summariser
+from flins.assistant.chats import ChatCommands
 from flins.assistant.context import ContextBuilder, TurnContext
 from flins.assistant.conversation import ConversationStore, Session
 from flins.assistant.memory import MemoryStore, NoMemory, SqlMemory, is_secret
@@ -120,6 +121,7 @@ class Assistant:
         tasks: TaskStore | None = None,
         task_commands: TaskCommands | None = None,
         plan_commands: PlanCommands | None = None,
+        chat_commands: ChatCommands | None = None,
         tools: ToolBox | None = None,
     ) -> None:
         self._commands = commands
@@ -138,6 +140,7 @@ class Assistant:
         self._tasks = tasks
         self._task_cmds = task_commands
         self._plan_cmds = plan_commands
+        self._chat_cmds = chat_commands
         self._tools = tools if tools is not None and cfg.tools.enabled else None
         self._last_used: dict[str, list[MemoryItem]] = {}  # per channel: memories last shown
         self._last_suggest: datetime | None = None
@@ -187,8 +190,16 @@ class Assistant:
                 said = await self._memory_cmds.handle(
                     text, source, now, self._last_used.get(source, [])
                 )
+            kept = None
+            if said is None and self._chat_cmds is not None:
+                stage = "chat command"
+                found = await self._chat_cmds.handle(
+                    text, source, now, addressed=addressed, wait=self._waiter(source)
+                )
+                if found is not None:
+                    said, kept = found.text, found.stored
             if said is not None:
-                reply = Reply(said, "command", [stage])
+                reply = Reply(said, "command", [stage], stored=kept)
                 await self._finish(text, source, now, reply, started)
                 return reply
 
@@ -439,10 +450,20 @@ class Assistant:
         session = await self._store.session(now)
         await self._store.add(session, role="user", text=text, source=source, now=now)
         assert reply.text is not None
-        direct = reply.stages[:1] in (["memory command"], ["task command"], ["plan command"])
+        direct = reply.stages[:1] in (
+            ["memory command"],
+            ["task command"],
+            ["plan command"],
+            ["chat command"],
+        )
         stored_as = "memory" if direct else reply.route
         await self._store.add(
-            session, role="assistant", text=reply.text, source=source, now=now, route=stored_as
+            session,
+            role="assistant",
+            text=reply.stored or reply.text,
+            source=source,
+            now=now,
+            route=stored_as,
         )
         await self._maybe_summarise(session)
         route: Route = reply.route

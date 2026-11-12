@@ -230,6 +230,16 @@ class ToolsConfig(_Strict):
     online: OnlineToolsConfig = Field(default_factory=OnlineToolsConfig)
 
 
+class ChatsConfig(_Strict):
+    """Asking FLINS about one person's chat (docs/milestones/J6.md). Read-only."""
+
+    enabled: bool = True
+    max_messages: int = Field(default=12, ge=1, le=40)  # how many recent messages it looks at
+    days: int = Field(default=7, ge=1, le=60)  # and how far back
+    # false = "summarise X's chat" reads the messages out instead of asking an AI model
+    summarise: bool = True
+
+
 class AssistantConfig(_Strict):
     """The conversational core (docs/JARVIS_ARCHITECTURE.md). Personality lives here, not in
     code: FLINS's name, how it talks, and when it may speak up in your self-chat."""
@@ -256,6 +266,7 @@ class AssistantConfig(_Strict):
     voice_big_models: bool = False
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    chats: ChatsConfig = Field(default_factory=ChatsConfig)
 
 
 class AppConfig(_Strict):

@@ -2,6 +2,32 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 6a: your chats (2026-11-12)
+- **Split phase 6.** 6a adds a read-only view and a reply path that already existed. 6b
+  (modes, topic permissions, hold) changes how incoming messages are decided, so its eval
+  cases come first and it ships separately.
+- **Fixed phrases, not a model tool.** "What did X say" is matched by code and answered from
+  SQL. Giving the conversation model a "read chat" tool would put contact text next to the
+  note and online tools; a command keeps it out of that context entirely.
+- **A placeholder in the history instead of the text.** Cost: FLINS can't discuss a chat it
+  just read out. "What does he want / mean" is therefore answered by re-summarising the
+  chat, not by the conversation model (which, seen live, otherwise made an answer up). The
+  placeholder itself says the assistant was not shown the messages, because small models
+  skip prompt rules.
+- **The summary is shown, never stored or acted on.** A fooled summary model can at worst
+  show the owner a wrong sentence. Its output can't open a confirmation, and the money /
+  code warning is decided by a regular expression on the messages, not by the model.
+- **Replies reuse `_send_flow`.** One confirm-then-Outbox path for "tell Rahul ...", the
+  intent model's `send` and "reply to him": the Outbox checks (paused, expired, dry run,
+  limits, the contact wrote first) apply unchanged.
+- **Names with no connector.** "reply to Rahul I'll call at 8": the name is the longest
+  leading run of words that is exactly a contact's name, else the first word. A test caught
+  the first version dropping part of the message.
+- **Live check used made-up chats**, not a copy of the real database: a summary may go to a
+  cloud fallback, and real messages have no place in a test run.
+- **Accepted:** the read-out goes to whatever channel asked, including your self-chat (it is
+  your own data on your own account). Group chats are excluded for now.
+
 ## 0.17.1: voice fixes (2026-11-12)
 - **Start Ollama rather than warn.** The silent fallback to the cloud was the worst outcome:
   slower, and conversation text left the PC without the user noticing. Starting the server

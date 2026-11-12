@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.18.0: phase 6a, your chats (2026-11-12)
+- **"What did Rahul say?"** reads the last messages of that chat out, word for word, with no
+  AI model. Also "any messages from mom?", "read Rahul's chat".
+- **"Summarise Rahul's chat" / "what does he want?"**: a short summary from the `summary`
+  model plus what the person is waiting for. The chat goes in as untrusted data, with no
+  tools. Without a model it reads the messages out instead.
+- **"Reply to him I'll call at 8" / "tell her ..."**: your words, read back, sent only after
+  yes, through the existing Outbox path. "him / her / them" is the person you last asked
+  about, for 10 minutes. FLINS never drafts the reply from the contact's text.
+- **Contact text can't act and doesn't linger**: it never opens a yes / no question, never
+  reaches a tool or a memory, and the conversation history keeps only a placeholder.
+- Codes are removed from lines that mention an OTP / PIN / password before a summary; chats
+  that mention money or codes get a warning line decided by code.
+- Audit rows `assistant.chat_read`: kind, contact id, count. No names or text.
+- `assistant.chats` settings; prompts `thread_v1`, `chat_v7`; `CommandRouter.send`.
+- Live, with the real local models on made-up chats in a throwaway database: read-out,
+  summary, "reply to him" → yes → one queued row, and a scam-style message got the warning
+  and triggered nothing.
+- Tests: 1098 Python (47 new). Eval unchanged: 0 unsafe of 162 (the pipeline is untouched).
+
 ## 0.17.1: fixes from the first real voice session (2026-11-12)
 - **Ollama starts by itself.** With local models configured but Ollama not running, every
   answer was silently coming from the cloud fallback. FLINS now starts `ollama serve` when a

@@ -6,7 +6,7 @@ and the git history. `docs/SPEC.md` stays the source of truth for the WhatsApp s
 This document describes how FLINS grows from a messaging assistant into one personal assistant
 **without a rewrite**.
 
-**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3 (tasks and reminders 0.13.0, planning 0.14.0; [milestones/J3.md](milestones/J3.md), [J3b.md](milestones/J3b.md)) and phase 4 (tools 0.15.0, online tools 0.16.0; [J4.md](milestones/J4.md), [J4b.md](milestones/J4b.md)) and phase 5 (conversational voice, 0.17.0; [J5.md](milestones/J5.md)). Next: phase 6 (WhatsApp autonomy).
+**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3 (tasks and reminders 0.13.0, planning 0.14.0; [milestones/J3.md](milestones/J3.md), [J3b.md](milestones/J3b.md)) and phase 4 (tools 0.15.0, online tools 0.16.0; [J4.md](milestones/J4.md), [J4b.md](milestones/J4b.md)) and phase 5 (conversational voice, 0.17.0; [J5.md](milestones/J5.md)) and phase 6a (asking about and replying to a chat, 0.18.0; [J6.md](milestones/J6.md)). Next: phase 6b (more modes, per-contact topics, hold).
 
 ## 1. Where FLINS is today
 
@@ -104,8 +104,9 @@ work. Nothing below is replaced; the boxes marked ★ are new.
   `<untrusted_thread>`, handled only by the pipeline, with the policy engine deciding the level
   and the Outbox as the only way to send. The conversation model never gets a tool that sends.
 
-When owner questions need contact data ("what did Rahul say?", phase 6), it enters the core as
-quoted, neutralised data from a read-only capability, never as instructions.
+When owner questions need contact data ("what did Rahul say?", phase 6a, `assistant/chats.py`),
+a read-only command shows it to the owner. It reaches a model only for a summary, as
+neutralised data with no tools, and never enters the conversation history.
 
 ### Model roles
 `triage`, `draft`, `redflag` stay required. New optional roles borrow routes when not configured:

@@ -33,6 +33,9 @@ class Reply:
     stages: list[str] = field(default_factory=list)  # what the core did, in order
     model_role: str | None = None  # "chat" | "reason" when a model answered
     flagged: str | None = None  # why the model's reply was replaced, if it was
+    # Kept in the conversation history instead of `text` (a read-out of someone's chat is
+    # shown to you, but must not become context for the conversation model).
+    stored: str | None = None
 
 
 @dataclass(frozen=True)

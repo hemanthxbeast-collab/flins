@@ -96,8 +96,6 @@ async def test_yes_with_a_change_does_not_run_the_action(rig: Rig) -> None:
     [
         ("pending", "can you list the things whichever we noted in the note?"),
         ("pending", "show me everything"),
-        ("summary", "Hey Flins, can you summarize Rahul's chart for me?"),
-        ("summary", "summarise the chat with Rahul"),
         ("summary", "what's in my notes"),
         ("summary", "tell me about thermodynamics"),
     ],

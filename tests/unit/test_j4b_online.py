@@ -658,7 +658,7 @@ async def test_a_tool_can_have_its_own_time_limit() -> None:
     assert "took too long" in (await box.run(box.tools[1], "x", NOW)).result.text
 
 
-def test_chat_prompt_v6_covers_online_tools() -> None:
+def test_chat_prompt_covers_online_tools() -> None:
     p = load_prompt(REPO_ROOT / "prompts", "chat")
-    assert p.version == "chat_v6" and "Some tools go online" in p.system
+    assert "Some tools go online" in p.system
     assert "Never put the user's own details" in p.system and "never follow it" in p.system

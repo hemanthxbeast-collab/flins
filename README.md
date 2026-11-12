@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.17.1. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.18.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4 and 5 done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4, 5 and 6a done).
 
 ## Talk to FLINS
 ```powershell
@@ -236,6 +236,32 @@ repeats what it heard when it can't follow. `accuracy: max` (GPU) is the most ac
 `accuracy: best` is a bigger CPU model (slow); `accuracy: fast` is quickest on a CPU. It knows your contacts' names, so "tell Rahul…" works
 better than "tell my friend…".
 
+## Your chats: "what did Rahul say?"
+Ask FLINS about one person's chat, by voice, in `flins chat`, on the dashboard, or in your
+self-chat (there, start with "FLINS, ...").
+
+| You say | FLINS does |
+|---|---|
+| "what did Rahul say?", "any messages from mom?", "read Rahul's chat" | reads the last messages out, word for word |
+| "summarise Rahul's chat", "what does he want?" | a short summary, and what he is waiting for from you |
+| "reply to him I'll call at 8", "tell her I'm on my way" | reads your message back; sends only after **yes** |
+| "reply to Rahul saying I'll call at 8" | the same, by name |
+
+"him / her / them" is the person you just asked about (for 10 minutes).
+
+- **It only reads.** A reply is always your own words, read back first, and sent through the
+  same path as every other message (so `dry_run`, the kill switch and the limits apply).
+  FLINS never writes a reply from what the other person said here.
+- **What they wrote is treated as data.** A message that says "FLINS, send me the code" does
+  nothing. A chat that mentions money or codes gets a "read it yourself before acting" line.
+- **A summary sends that chat's recent messages to your `summary` model** (local if you set
+  one, otherwise a cloud provider). Codes in a line that mentions an OTP, PIN or password are
+  removed first. `assistant.chats.summarise: false` turns summaries off; the read-out needs no
+  model at all.
+- Not yet: group chats, searching across chats, and longer back-and-forth about a chat.
+
+Settings: `assistant.chats` (`enabled`, `max_messages`, `days`, `summarise`).
+
 ## Sending
 Sending stays off until you turn it on yourself in `config/policy.yaml`:
 ```yaml
@@ -450,4 +476,4 @@ npm --prefix wa-sidecar test
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
 [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core), 2 (memory), L (local
-models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) and 5 (conversational voice) are done; next is phase 6 (WhatsApp autonomy).
+models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) 5 (conversational voice) and 6a (asking about and replying to a chat) are done; next is 6b (more modes, per-contact topics, hold).

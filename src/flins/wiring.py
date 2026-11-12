@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import aiosqlite
 
 from flins.assistant.chat import ChatEngine, Summariser
+from flins.assistant.chats import ChatCommands, ThreadSummariser
 from flins.assistant.conversation import ConversationStore
 from flins.assistant.core import Assistant, Commands
 from flins.assistant.memory import CombinedMemory, ProfileMemory, SqlMemory
@@ -308,6 +309,32 @@ def plan_store(settings: Settings, conn: aiosqlite.Connection) -> PlanStore:
     return PlanStore(conn, task_store(settings, conn))
 
 
+def chat_commands(
+    settings: Settings,
+    conn: aiosqlite.Connection,
+    commands: Commands,
+    gateway: LLMGateway | None,
+    audit: AuditLog,
+) -> ChatCommands | None:
+    """ "What did X say", "summarise X's chat", "reply to him" (phase 6a). Read-only; a reply
+    goes through the router's confirm-then-Outbox flow."""
+    cfg = settings.app.assistant.chats
+    if not cfg.enabled:
+        return None
+    summariser = None
+    if gateway is not None and cfg.summarise:
+        summariser = ThreadSummariser(gateway, load_prompt(settings.prompts_dir, "thread"))
+    return ChatCommands(
+        conn,
+        ZoneInfo(settings.policy.user.timezone),
+        audit,
+        sender=commands if isinstance(commands, CommandRouter) else None,
+        summariser=summariser,
+        max_messages=cfg.max_messages,
+        days=cfg.days,
+    )
+
+
 def make_assistant(
     settings: Settings,
     conn: aiosqlite.Connection,
@@ -348,6 +375,7 @@ def make_assistant(
         tasks=tasks,
         task_commands=TaskCommands(tasks, commands),
         plan_commands=PlanCommands(PlanStore(conn, tasks), tasks, commands, planner),
+        chat_commands=chat_commands(settings, conn, commands, gateway, audit),
         tools=tool_box(settings),
     )
 

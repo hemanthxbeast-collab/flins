@@ -410,6 +410,13 @@ class CommandRouter:
 
         return self._confirm(source, f'Send to {p.who}: "{text}"?', run)
 
+    async def send(self, spoken: str | None, text: str | None, source: str) -> str:
+        """Send *your* words to a contact: finds the contact, reads the message back and
+        waits for your yes. The only way the assistant side starts a send."""
+        if self._conn is None or not self._can_send:
+            return "Sending messages only works while `flins run` is running."
+        return await self._send_flow(spoken, text, source)
+
     async def _confirm_send(self, intent: Intent, source: str) -> str:
         if self._conn is None or not self._can_send:
             return "Sending messages only works while `flins run` is running."
