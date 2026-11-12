@@ -12,7 +12,8 @@ from typing import Any, Protocol
 HINT = (
     "Commands for FLINS, Hemanth's assistant: working mood, focus mode, I'm done, resume, stop, "
     "status, pending, approve number three, reject, extend, what did I miss, "
-    "tell Rahul I'll call him at 8."
+    "tell Rahul I'll call him at 8. Hey FLINS, note down buy milk. Remind me at 7. "
+    "What's in my notes? What are my tasks? What's the weather?"
 )
 PRESETS = {
     "fast": ("base", 1),

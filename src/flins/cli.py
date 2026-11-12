@@ -49,12 +49,14 @@ from flins.wiring import (
     all_tools,
     build_router,
     conversation_store,
+    ensure_local,
     make_assistant,
     make_brain,
     make_skills,
     memory_store,
     open_assistant,
     plan_store,
+    preload_local,
     task_store,
     tool_box,
 )
@@ -350,6 +352,12 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
         spawned = True
         print(f"started WhatsApp sidecar (log: {sidecar.log_path})")
 
+    warm: asyncio.Task[str | None] | None = None
+    if brain:
+        for note in await ensure_local(settings):
+            print(f"-- {note}")
+        if settings.app.llm.start_local:
+            warm = asyncio.create_task(preload_local(settings))  # ready before you ask
     conn = await connect(settings.db_path)
     await migrate(conn)
     audit = AuditLog(conn)
@@ -513,6 +521,8 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
             backups_task.cancel()
         if voice_task is not None:
             voice_task.cancel()
+        if warm is not None:
+            warm.cancel()
         wake_parts = getattr(voice_loop, "wake_parts", None) if brain else None
         if wake_parts is not None:
             wake_parts[0].stop()

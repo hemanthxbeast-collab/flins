@@ -11,8 +11,15 @@ Uses Ollama's own API next to its OpenAI-compatible one:
 
 from __future__ import annotations
 
+import asyncio
+import os
+import shutil
+import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -95,9 +102,84 @@ class LocalModels:
         self._current = model
         return unloaded
 
+    async def preload(self, model: str) -> bool:
+        """Load `model` into memory now (a request with no prompt), so your first question
+        doesn't wait for it. Never raises."""
+        try:
+            resp = await self.post("/api/generate", {"model": model}, timeout_s=180.0)
+            return resp.status_code == 200
+        except (httpx.HTTPError, ValueError):
+            return False
+
     async def unload_all(self) -> list[str]:
         names = [m.name for m in await self.loaded()]
         for name in names:
             await self.unload(name)
         self._current = None
         return names
+
+
+# ---------------------------------------------------------------------- starting Ollama
+
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+
+
+def find_ollama() -> Path | None:
+    """The Ollama program on this PC, or None."""
+    found = shutil.which("ollama")
+    if found:
+        return Path(found)
+    base = os.environ.get("LOCALAPPDATA")
+    if base:
+        exe = Path(base) / "Programs" / "Ollama" / "ollama.exe"
+        if exe.is_file():
+            return exe
+    return None
+
+
+def spawn_ollama(exe: Path) -> None:
+    """Start `ollama serve` in the background, with no window. It keeps running after FLINS
+    stops, like when you start Ollama yourself."""
+    flags = 0
+    if os.name == "nt":
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(
+        [str(exe), "serve"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=flags,
+    )
+
+
+async def ensure_running(
+    base_url: str,
+    *,
+    find: Callable[[], Path | None] = find_ollama,
+    spawn: Callable[[Path], None] = spawn_ollama,
+    wait_s: float = 30.0,
+    poll_s: float = 0.5,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> str:
+    """Make sure the local model server answers. Returns "running" (it already was),
+    "started", "not installed", "not local" (the address is another machine: never started
+    from here) or "did not start"."""
+    models = LocalModels(base_url, timeout_s=2.0, transport=transport)
+    if await models.version() is not None:
+        return "running"
+    if urlsplit(native_base(base_url)).hostname not in LOCAL_HOSTS:
+        return "not local"
+    exe = find()
+    if exe is None:
+        return "not installed"
+    try:
+        spawn(exe)
+    except OSError:
+        return "did not start"
+    waited = 0.0
+    while waited < wait_s:
+        await asyncio.sleep(poll_s)
+        waited += poll_s
+        if await models.version() is not None:
+            return "started"
+    return "did not start"

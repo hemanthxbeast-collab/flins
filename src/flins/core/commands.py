@@ -120,6 +120,46 @@ def _plain(text: str) -> str:
     return " ".join(text.lower().strip().strip(".!?").split())
 
 
+_YES_FIRST = re.compile(r"^(?:yes|yeah|yep|yup|haan|sure|okay|ok)\b[\s,.!]*(?P<rest>.*)$")
+_NO_FIRST = re.compile(r"^(?:no|nope|nah|nahi|cancel|don'?t)\b")
+# After "yes", words like these mean the answer isn't a plain yes ("yes but make it 8").
+_CHANGES = re.compile(
+    r"\b(?:but|change|instead|wait|not|no|don'?t|except|actually|make it|rather|only if|"
+    r"hold on|stop|cancel|later|first)\b"
+)
+
+
+def said(text: str) -> str | None:
+    """Your answer to a yes/no question: "yes", "no" or None (something else).
+
+    Spoken answers carry extra words ("Yes, add it to the notes."). A leading yes counts
+    unless the rest changes the request; a leading no always counts (the safe direction)."""
+    answer = _plain(text)
+    if answer in YES:
+        return "yes"
+    if answer in NO or _NO_FIRST.match(answer):
+        return "no"
+    m = _YES_FIRST.match(answer)
+    if m is not None and len(answer) <= 80 and not _CHANGES.search(m.group("rest")):
+        return "yes"
+    return None
+
+
+# A model may only pick these two read-outs when your words point at them. A small model
+# sent "list the things we noted" to "pending" and "summarise X's chat" to the debrief.
+_PENDING_WORDS = re.compile(r"\b(?:pending|approv\w*|drafts?|waiting|queue\w*)\b", re.IGNORECASE)
+_SUMMARY_WORDS = re.compile(
+    r"\b(?:miss(?:ed)?|summar\w+|debrief|catch(?:ing)? (?:me )?up|messages?|what happened|"
+    r"while i was|anything new|updates?)\b",
+    re.IGNORECASE,
+)
+_ONE_CHAT = re.compile(
+    r"\b\w+['\u2019]s (?:chat|chart|conversation|messages?|texts?)\b|"
+    r"\b(?:chat|chart|conversation|messages?|texts?) (?:with|from|of|by)\b|\bnotes?\b",
+    re.IGNORECASE,
+)
+
+
 class CommandRouter:
     def __init__(
         self,
@@ -171,10 +211,10 @@ class CommandRouter:
         now = self._clock.now()
         waiting = self._pending.pop(source, None)
         if waiting is not None and waiting.expires > now:
-            answer = _plain(text)
-            if answer in YES:
+            answer = said(text)
+            if answer == "yes":
                 return await waiting.run()
-            if answer in NO:
+            if answer == "no":
                 return "Okay, I won't."
             # Anything else: the question lapses and the new text is handled normally.
 
@@ -297,8 +337,12 @@ class CommandRouter:
             await self._modes.refresh()
             return await self._modes.status_text()
         if a == "summary":
+            if not _SUMMARY_WORDS.search(text) or _ONE_CHAT.search(text):
+                return None if quiet else HELP  # not the debrief: let the conversation answer
             return await self.summary()
         if a == "pending":
+            if not _PENDING_WORDS.search(text):
+                return None if quiet else HELP
             return await self._approval(ApprovalCommand("list"), source)
         if a == "reject" and intent.number:
             return await self._approval(ApprovalCommand("reject", intent.number), source)

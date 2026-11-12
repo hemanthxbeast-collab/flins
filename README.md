@@ -3,7 +3,7 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.17.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.17.1. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
 assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4 and 5 done).
@@ -219,6 +219,17 @@ self-chat. Settings live under `voice:` in `config/flins.yaml` (model, voice, ho
 with Indian English and names (the default CPU model takes about 2 s). First run downloads
 1.6 GB; it uses about 2 GB of video memory. Without a usable GPU it falls back to the small
 CPU model by itself.
+
+**If it mishears particular words**, list them under `voice.vocabulary` in `config/flins.yaml`
+(places, subjects, nicknames: `vocabulary: [NPTEL, thermo, Chikkamagaluru]`). Contact names are
+added by themselves. After the hotkey, "Hey friends" or "Hey Flints" is understood as "Hey FLINS".
+A spoken answer can carry extra words: "Yes, add it to the notes" is a yes; "yes, but make it
+8" is not, and nothing happens.
+
+**Local models start by themselves.** If your conversation model runs on this PC and Ollama
+isn't running, `flins run`, `flins chat` and `flins ask` start it in the background, and
+`flins run` loads the model right away so your first question isn't slow. Switch off with
+`llm.start_local: false`.
 
 If it mishears you: speak right after the beep, a little slower, and say names clearly. FLINS
 repeats what it heard when it can't follow. `accuracy: max` (GPU) is the most accurate;

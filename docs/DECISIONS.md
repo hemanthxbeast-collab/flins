@@ -2,6 +2,24 @@
 
 Short records of choices made while building. Newest first.
 
+## 0.17.1: voice fixes (2026-11-12)
+- **Start Ollama rather than warn.** The silent fallback to the cloud was the worst outcome:
+  slower, and conversation text left the PC without the user noticing. Starting the server
+  is what the user would do by hand. It is left running when FLINS stops.
+- **A leading "yes" confirms unless the rest changes the request.** Cautious side: any of
+  but / change / instead / wait / not / actually / later after the yes means no action, and
+  the question lapses. A leading "no" always cancels.
+- **Keyword gate on two model-chosen read-outs** (`pending`, `summary`). They are harmless
+  but wrong answers ("Nothing is waiting for approval" to a question about notes) make voice
+  feel broken. The gate only ever turns a command into ordinary conversation.
+- **Name repair is limited to the start of a hotkey utterance.** "friends" is a normal word;
+  it becomes FLINS only after a greeting and before a comma, full stop or the end.
+- **Still open: accent.** "milk" was heard as "mail" and "chat" as "chart" by the large-v3-turbo
+  model. Options: `voice.vocabulary`, the full `large-v3` model (3 GB download, about twice
+  as slow), or a noise-suppression step before recognition.
+- **Still open: one person's chat.** "Summarise <name>'s chat" has no tool yet; it belongs to
+  phase 6 (WhatsApp autonomy), with the same care as everything that reads messages.
+
 ## Phase 5: conversational voice (2026-11-12)
 - **Follow-up only after a question by default.** Listening after every answer feels most
   natural but opens the microphone to whatever is said in the room next. `question` mode

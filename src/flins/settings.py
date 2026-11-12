@@ -55,6 +55,8 @@ class RouteConfig(_Strict):
 
 class LLMConfig(_Strict):
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
+    # If a job uses a model on this PC and Ollama isn't running, start it (`ollama serve`).
+    start_local: bool = True
     # Per job, providers in order of preference. Missing jobs use the Anthropic defaults.
     # triage / draft / redflag are needed for WhatsApp. intent, chat, reason and summary are
     # optional: without their own list they borrow another job's (see llm/providers.py).
@@ -76,6 +78,9 @@ class VoiceConfig(_Strict):
     # "en" (default) stops short clips being mistaken for German or Dutch. Use "hi"/"te" if you
     # speak commands in Hindi/Telugu script, or null to detect each time.
     language: str | None = "en"
+    # Words FLINS should spell right that it tends to mishear: places, subjects, project
+    # names, nicknames. Contact names are added by themselves.
+    vocabulary: list[str] = Field(default_factory=list, max_length=40)
     tts: Literal["sapi", "piper", "print"] = "sapi"  # sapi = Windows voices; piper = more
     # natural (run `flins voice download` once); print = text only
     piper_voice: str = "en_US-lessac-medium"  # see `flins voice download --list`

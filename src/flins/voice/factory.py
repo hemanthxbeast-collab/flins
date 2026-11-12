@@ -86,7 +86,7 @@ def make_loop(
         make_tts(settings),
         signature=settings.policy.user.signature,
         announce=announce,
-        hint_source=_names_hint(conn) if conn is not None else None,
+        hint_source=_hint(conn, v.vocabulary),
         follow_up=v.follow_up,
         follow_up_s=v.follow_up_s,
         awaiting=_awaiting(router),
@@ -99,9 +99,18 @@ def _awaiting(router: object) -> Callable[[], bool] | None:
     return (lambda: bool(check("voice"))) if callable(check) else None
 
 
-def _names_hint(conn: aiosqlite.Connection) -> Callable[[], Awaitable[str]]:
+def _hint(
+    conn: aiosqlite.Connection | None, vocabulary: list[str]
+) -> Callable[[], Awaitable[str]] | None:
+    """Spelling hints for the speech model: your contacts' names and your own word list."""
+    words = ", ".join(w.strip() for w in vocabulary if w.strip())[:300]
+    if conn is None and not words:
+        return None
+
     async def hint() -> str:
-        names = await contact_names(conn)
-        return ("People: " + ", ".join(names) + ".") if names else ""
+        names = await contact_names(conn) if conn is not None else []
+        parts = [("People: " + ", ".join(names) + ".") if names else ""]
+        parts.append(f"Words: {words}." if words else "")
+        return " ".join(p for p in parts if p)
 
     return hint

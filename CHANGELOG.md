@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.17.1: fixes from the first real voice session (2026-11-12)
+- **Ollama starts by itself.** With local models configured but Ollama not running, every
+  answer was silently coming from the cloud fallback. FLINS now starts `ollama serve` when a
+  job needs it (`llm.start_local`), and `flins run` preloads the conversation model. Never
+  started for a model server on another machine.
+- **"Yes, add it to the notes" is a yes.** A spoken answer with extra words confirms; a leading
+  "no" always cancels; "yes, but ..." / "yes, change ..." confirms nothing.
+- **Fewer misrouted commands.** A model can no longer send "list the things we noted" to the
+  approvals list or "summarise <name>'s chat" to the what-did-I-miss summary: both read-outs
+  now need matching words, and prompt `intent_v2` sends everything else to the conversation.
+- **"Hey friends" → "Hey FLINS"** after the hotkey (and Flints, Fins, Flens ...), only at the
+  very start of what you said.
+- `voice.vocabulary`: your own words for the speech model's spelling hint; the built-in hint
+  now covers notes, reminders, tasks and weather phrases.
+- Stopping FLINS ends a voice conversation in progress (no more "no active connection").
+- Live, on a throwaway database: Ollama started by FLINS, then note → "Yes, add it to the
+  notes." → noted; "list the things we noted" read the notes; all calls answered locally.
+- Tests: 1053 Python (54 new). Eval unchanged: 0 unsafe of 162.
+
 ## 0.17.0: phase 5, conversational voice (2026-11-12)
 - **Speech recognition on the GPU**: `accuracy: max` + `stt_device: auto`. Measured here:
   0.3 s per sentence (CPU model: 2.0 s), 2.1 GB video memory, five of five test sentences

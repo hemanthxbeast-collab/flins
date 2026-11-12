@@ -37,6 +37,7 @@ from flins.core.intents import IntentParser
 from flins.core.modes import ModeManager
 from flins.core.pipeline import Brain
 from flins.llm.gateway import Backend, LLMGateway
+from flins.llm.local import LocalModels, ensure_running
 from flins.llm.prompts import load_prompt
 from flins.llm.providers import (
     BUILTIN_PROVIDERS,
@@ -149,6 +150,41 @@ def build_router(settings: Settings, only: str | None = None) -> tuple[Configure
             continue
         backends[name] = make_backend(spec, key)
     return ConfiguredRouter(role_routes, backends), problems
+
+
+async def ensure_local(settings: Settings) -> list[str]:
+    """Start the local model server if a job needs it and it isn't running. Returns lines
+    worth showing (nothing when it was already running or no job is local)."""
+    if not settings.app.llm.start_local:
+        return []
+    notes: list[str] = []
+    for name, st in provider_status(settings).items():
+        if not (st.spec.local and st.spec.base_url and st.used_by):
+            continue
+        state = await ensure_running(st.spec.base_url)
+        if state == "started":
+            notes.append(f"Started {name} (local models) in the background.")
+        elif state == "not installed":
+            notes.append(f"Local models ({name}) are configured but Ollama isn't installed.")
+        elif state == "did not start":
+            notes.append(f"Couldn't start {name}; answers will come from the cloud fallback.")
+        elif state == "not local":
+            notes.append(f"{name} isn't reachable at {st.spec.base_url}.")
+    return notes
+
+
+async def preload_local(settings: Settings) -> str | None:
+    """Load the everyday conversation model if it runs on this PC, so the first answer isn't
+    the slow one. Returns the model's name when it was loaded."""
+    specs, _ = provider_specs(settings)
+    role_routes, _ = routes(settings)
+    for route in (role_routes.get("chat") or [])[:1]:
+        spec = specs.get(route.provider)
+        if spec is None or not spec.local or not spec.base_url:
+            continue
+        if await LocalModels(spec.base_url).preload(route.model):
+            return route.model
+    return None
 
 
 def make_brain(
@@ -336,6 +372,9 @@ async def start_assistant(settings: Settings, backend: Backend | None = None) ->
     await migrate(conn)
     clock = SystemClock()
     modes = await ModeManager.open(settings.db_path, EventBus(), settings.policy, clock)
+    if backend is None:
+        for note in await ensure_local(settings):
+            print(f"-- {note}")
     brain = make_brain(settings, conn, clock, backend)
     intents = (
         IntentParser(brain.gateway, load_prompt(settings.prompts_dir, "intent"))

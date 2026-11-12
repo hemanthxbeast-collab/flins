@@ -30,6 +30,7 @@ logging:
 # price_in / price_out (USD per million tokens) let the daily budget count providers FLINS
 # doesn't know prices for. Without them those calls count as $0.
 llm:
+  start_local: true      # start Ollama by itself when a job below uses a model on this PC
   roles:
     triage:          # classifies each message: small and fast is fine
       - {provider: anthropic, model: claude-haiku-5-5}
@@ -146,6 +147,7 @@ voice:
   stt_device: cpu         # cuda = NVIDIA GPU; auto = GPU if there is one. The GPU libraries
                           # come with `uv sync --extra voice` on Windows.
   language: en            # en stops short clips being read as German; null = detect every time
+  vocabulary: []          # words it mishears, spelled right: [Chikkamagaluru, NPTEL, thermo]
   tts: sapi               # sapi = Windows voices; piper = more natural (first run:
                           # uv run flins voice download); print = show text only
   piper_voice: en_US-lessac-medium   # list: uv run flins voice download --list

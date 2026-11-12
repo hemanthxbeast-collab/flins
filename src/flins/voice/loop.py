@@ -32,6 +32,25 @@ _BYE = re.compile(
     re.IGNORECASE,
 )
 _ASKS = re.compile(r"\?\s*$|\bsay yes or no\b", re.IGNORECASE)
+# You pressed the hotkey, so you are talking to FLINS: a greeting followed by something that
+# sounds like its name is its name ("Hey friends, ..." / "Big Fins.").
+_NAME = re.compile(
+    r"^(?P<hi>\W*(?:hey|hi|hello|ok|okay|yo)[\s,]+)"
+    r"(?:flins|flints|flinz|flin'?s|flinns|flynn'?s|fleens|flens|flings|plins|blins|fins|friends)"
+    r"(?P<end>\s*[,.!?]|\s*$)"
+    r"|^\W*(?:big |the )?(?:flints|flinz|flinns|flynn'?s|fleens|flens|plins|blins|fins)"
+    r"(?P<end2>\s*[,.!?]|\s*$)",
+    re.IGNORECASE,
+)
+
+
+def fix_name(heard: str) -> str:
+    """'Hey friends, what's up' -> 'Hey FLINS, what's up' (only at the very start)."""
+    m = _NAME.match(heard)
+    if m is None:
+        return heard
+    end = m.group("end") if m.group("end") is not None else m.group("end2")
+    return f"{m.group('hi') or ''}FLINS{end}{heard[m.end() :]}"
 
 
 def soft_beep() -> None:
@@ -189,7 +208,7 @@ class VoiceLoop:
             except Exception:  # hints are a bonus; never fail a turn over them
                 hint = None
         transcript = await self._stt.transcribe(rec.audio, hint)
-        heard = transcript.text.strip()
+        heard = fix_name(transcript.text.strip())
         if not heard:
             if not follow_up:
                 await self.say(NOT_UNDERSTOOD)
@@ -216,17 +235,24 @@ class VoiceLoop:
         """Handle hotkey presses forever. A press while FLINS is talking stops it and listens;
         a press while it is listening cancels that recording."""
         current: asyncio.Task[Turn | None] | None = None
-        while True:
-            await presses.get()
-            running = current is not None and not current.done()
-            if self.interrupt():
-                if not running:  # it was speaking an alert, not answering you
-                    current = asyncio.create_task(self._safe_turn())
-                continue
-            if running:
-                self._cancel.set()
-                continue
-            current = asyncio.create_task(self._safe_turn())
+        try:
+            while True:
+                await presses.get()
+                running = current is not None and not current.done()
+                if self.interrupt():
+                    if not running:  # it was speaking an alert, not answering you
+                        current = asyncio.create_task(self._safe_turn())
+                    continue
+                if running:
+                    self._cancel.set()
+                    continue
+                current = asyncio.create_task(self._safe_turn())
+        finally:
+            # FLINS is stopping: end a conversation in progress too, so it doesn't speak into
+            # a closed database.
+            self._cancel.set()
+            if current is not None and not current.done():
+                current.cancel()
 
     async def _safe_turn(self) -> Turn | None:
         try:
