@@ -19,7 +19,7 @@ import aiosqlite
 
 from flins.core.approvals import ApprovalService, summarise
 from flins.core.audit import AuditLog
-from flins.core.clock import Clock
+from flins.core.clock import Clock, to_iso
 from flins.core.events import Event, EventBus
 from flins.core.grammar import (
     ApprovalCommand,
@@ -296,6 +296,11 @@ class CommandRouter:
         who = matches[0]
         if cmd.op == "release":
             if await holds.release(who.jid):
+                await AuditLog(self._conn).record(
+                    "user",
+                    "hold.released",
+                    {"contact_id": await holds.contact_id(who.jid), "via": source},
+                )
                 return f"Released {who.name}. FLINS handles their messages as usual again."
             return f"{who.name} isn't on hold."
         if cmd.time is not None:
@@ -312,6 +317,11 @@ class CommandRouter:
             await holds.set(who.jid, until, source=source, now=now)
         except HoldError as exc:
             return str(exc)
+        await AuditLog(self._conn).record(
+            "user",
+            "hold.set",
+            {"contact_id": await holds.contact_id(who.jid), "until": to_iso(until), "via": source},
+        )
         return (
             f"Holding {who.name}'s messages until {self._hm(until)}. I won't reply to them; "
             "what they send will be in your summary, and urgent ones still alert you."
@@ -463,6 +473,26 @@ class CommandRouter:
             return await self._approval(cmd, source)
 
         return self._confirm(source, f'Send to {p.who}: "{text}"?', run)
+
+    def can_request_skill(self) -> bool:
+        return self._requests_dir is not None
+
+    def request_skill(self, wish: str, source: str) -> str:
+        """Save something FLINS couldn't do as a request for Hermes (your words, after your
+        yes). Hermes can only answer with files in skills/_incoming, which you then review."""
+        if self._requests_dir is None:
+            return "Skill requests aren't available here."
+        body = " ".join(wish.split())[:300]
+        write_request(
+            self._requests_dir,
+            f"The user asked FLINS for something it can't do yet: {body}",
+            source,
+            self._clock.now(),
+        )
+        return (
+            "Saved as a request for Hermes. If a skill gets built, it will wait for your "
+            "review on the dashboard's Skills page."
+        )
 
     async def send(self, spoken: str | None, text: str | None, source: str) -> str:
         """Send *your* words to a contact: finds the contact, reads the message back and

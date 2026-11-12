@@ -25,6 +25,7 @@ from flins.skilldev.workspace import (
     WorkspaceError,
     install,
 )
+from flins.skills.analysis import Analysis, analyse
 from flins.skills.checks import check_skill
 from flins.skills.engine import FixtureResult, SkillEngine, run_fixtures
 from flins.skills.lock import LOCK_FILE, SkillLock, hash_skill, skill_files
@@ -54,6 +55,7 @@ class ReviewView:
     installed: bool
     submission: dict[str, Any] | None
     submission_current: bool
+    analysis: Analysis | None = None  # what it could do (phase 8)
     problems: list[str] = field(default_factory=list)
 
     @property
@@ -153,9 +155,13 @@ class Reviewer:
             installed=installed_dir.is_dir(),
             submission=sub,
             submission_current=bool(sub and sub.get("sha256") == sha),
+            analysis=analyse(m, lock.entries.get(name)) if m is not None else None,
         )
 
-    async def approve(self, conn: aiosqlite.Connection, name: str, sha: str) -> tuple[bool, str]:
+    async def approve(
+        self, conn: aiosqlite.Connection, name: str, sha: str, *, acknowledged: bool = False
+    ) -> tuple[bool, str]:
+        """`acknowledged`: you ticked "I understand" for a high-risk skill."""
         d = self._dir(name)
         if not d.is_dir():
             return False, f"{name} isn't waiting for review."
@@ -178,6 +184,11 @@ class Reviewer:
             return False, f"{name} changed during the checks. Look at it again."
         manifest = result.report.manifest
         assert manifest is not None
+        analysis = analyse(manifest, lock.entries.get(name))
+        if analysis.needs_acknowledgement and not acknowledged:
+            return False, (
+                f"{name} is high risk. Read the points marked HIGH, tick the box, then approve."
+            )
         dest = install(d, self.skills_dir)
         if hash_skill(dest) != sha:
             shutil.rmtree(dest, ignore_errors=True)
@@ -197,6 +208,8 @@ class Reviewer:
                 "network": manifest.network,
                 "max_level": manifest.max_level.name,
                 "via": "dashboard review",
+                "risk": analysis.risk,
+                "acknowledged": bool(acknowledged),
                 "eval": {"cases": result.eval_cases, "skill_ran": result.eval_ran},
             },
         )

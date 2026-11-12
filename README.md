@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.20.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.22.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4, 5, 6 and 7 done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (all nine phases done).
 
 ## Talk to FLINS
 ```powershell
@@ -261,6 +261,34 @@ self-chat (there, start with "FLINS, ...").
 - Not yet: group chats, searching across chats, and longer back-and-forth about a chat.
 
 Settings: `assistant.chats` (`enabled`, `max_messages`, `days`, `summarise`).
+
+## The dashboard at a glance
+Open http://127.0.0.1:8765 while FLINS runs (or `uv run flins dashboard`).
+
+| Page | What it is for |
+|---|---|
+| **Home** | what FLINS is doing right now: mode, drafts waiting, today's tasks, who is on hold, what is switched on, the last things it did |
+| Chat, Tasks, Memory | talk to it, your list, what it remembers |
+| Inbox, Contacts | every incoming message with the reason for what FLINS did; tiers |
+| **Automations** | everything that happens without you asking: holds (with Release), repeating reminders, briefings, your modes and their phrases, topic limits, skills that are on |
+| **Activity** | the audit log, newest first, with a filter. These records never contain message text, task titles or names |
+| WhatsApp, Skills | pairing; skills and reviews |
+
+## When FLINS can't do something
+If you ask for something it can't do, it says so, and may add: *Want me to pass this to
+Hermes as a skill request: "<your words>"? Say yes or no.* On **yes** your request is saved
+for Hermes (the same folder "make a skill that ..." uses). It asks at most once every 30
+minutes, never for anything that looks like a secret, and never in a turn where it read a
+file or a web page. Switch it off with `assistant.skill_requests.offer: false`.
+
+A skill can only react to incoming messages or answer "what did I miss", so some requests
+can't be built; FLINS says "pass this to Hermes", not "I'll get this built".
+
+**Reviewing a skill.** The review page now starts with *What it could do*: a risk level and
+the reasons, worked out by FLINS from the permissions the skill asks for, not from the
+skill's own description. A skill whose replies could go out without you seeing them, or that
+can both read messages and reach the internet, is **high risk**: Approve only works after
+you tick "I read the points marked HIGH".
 
 ## Briefings and heads-ups (FLINS speaks first)
 Off until you switch it on in `config/flins.yaml`:
@@ -550,4 +578,4 @@ npm --prefix wa-sidecar test
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
 [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core), 2 (memory), L (local
-models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) 5 (conversational voice) and 6 (asking about a chat, your own modes, hold, topics per person) and 7 (briefings and heads-ups) are done; next is phase 8 (Hermes: asking for a skill that doesn't exist yet).
+models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) 5 (conversational voice) and 6 (asking about a chat, your own modes, hold, topics per person), 7 (briefings and heads-ups), 8 (skill requests and risk analysis) and 9 (dashboard home, activity, automations) are done. That is the whole plan.

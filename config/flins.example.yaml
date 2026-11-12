@@ -132,6 +132,9 @@ assistant:
     quiet_hours: ["23:00", "07:00"]   # written but not spoken in this window
     max_per_day: 6              # hard cap on what FLINS starts by itself
     speak: true                 # needs voice on; never in focus / away / paused
+  skill_requests:               # when FLINS can't do something, it may ask whether to pass
+    offer: true                 # your request to Hermes (saved only after your yes)
+    cooldown_minutes: 30        # at most one such question in this many minutes
   voice_big_models: false       # true = spoken reasoning / coding questions may use the
                                 # bigger models (sensible with local models; slower to answer)
   reasoning:                    # when to use the `reason` model instead of `chat`

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2 style="margin-top:0">{{ assistant_name }} right now</h2>
+  <p style="font-size:17px">{{ mode }}</p>
+  <div class="row">
+    <span class="chip">{{ pending }} draft{{ "" if pending == 1 else "s" }} waiting</span>
+    <span class="chip">{{ today|length }} task{{ "" if today|length == 1 else "s" }} today</span>
+    {% if overdue %}<span class="chip urgent">{{ overdue }} overdue</span>{% endif %}
+    <span class="chip">{{ holds|length }} on hold</span>
+    {% if skills_waiting %}<a class="chip" href="/skills">{{ skills_waiting }} skill{{ "" if skills_waiting == 1 else "s" }} to review</a>{% endif %}
+  </div>
+  {% if messages_today %}<p class="muted">Messages today: {{ messages_today }}.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Today</h3>
+  {% if not today %}<p class="muted">Nothing is due today. <a href="/tasks">All tasks</a></p>{% endif %}
+  {% for line in today %}<div>• {{ line }}</div>{% endfor %}
+  {% if holds %}
+  <p style="margin-bottom:0"><b>On hold:</b>
+    {% for h in holds %}{{ h.name }} until {{ h.until|local }}{{ "" if loop.last else "; " }}{% endfor %}.
+    <a href="/automations">Manage</a></p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">What is switched on</h3>
+  <table>
+    {% for f in features %}
+    <tr><td style="width:190px">{{ f.name }}</td>
+        <td style="width:60px">{% if f.on %}<span class="lvl-auto">on</span>{% else %}<span class="muted">off</span>{% endif %}</td>
+        <td class="muted">{{ f.detail }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">Changed in <code>config/flins.yaml</code> and <code>config/policy.yaml</code>, not here.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Last things it did</h3>
+  {% if not recent %}<p class="muted">Nothing yet.</p>{% endif %}
+  {% for r in recent %}<div><span class="muted">{{ r.ts|local("%d %b %H:%M") }}</span> {{ r.kind }} <span class="muted">{{ r.details }}</span></div>{% endfor %}
+  <p style="margin-bottom:0"><a href="/activity">All activity</a></p>
+</div>
+{% endblock %}

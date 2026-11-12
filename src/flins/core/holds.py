@@ -112,6 +112,11 @@ class HoldStore:
         )
         await self._conn.commit()
 
+    async def contact_id(self, jid: str) -> int | None:
+        async with self._conn.execute("SELECT id FROM contacts WHERE wa_jid = ?", (jid,)) as cur:
+            row = await cur.fetchone()
+        return int(row[0]) if row else None
+
     async def release(self, jid: str) -> bool:
         cur = await self._conn.execute("DELETE FROM contact_holds WHERE wa_jid = ?", (jid,))
         await self._conn.commit()

@@ -461,6 +461,7 @@ async def start_assistant(settings: Settings, backend: Backend | None = None) ->
         None,
         intents=intents,
         conn=conn,
+        skill_requests=settings.skills_dir / "_incoming" if settings.app.skills.enabled else None,
         conversational=True,
         can_send=False,
     )

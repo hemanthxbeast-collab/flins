@@ -144,6 +144,7 @@ class Assistant:
         self._plan_cmds = plan_commands
         self._chat_cmds = chat_commands
         self._proactive = proactive
+        self._last_offer: datetime | None = None  # skill request offers (phase 8)
         self._tools = tools if tools is not None and cfg.tools.enabled else None
         self._last_used: dict[str, list[MemoryItem]] = {}  # per channel: memories last shown
         self._last_suggest: datetime | None = None
@@ -336,7 +337,42 @@ class Assistant:
         if question is not None:
             said = f"{said}\n{question}"
             stages.append("memory suggested")
+        elif out.kind == "cannot" and used == 0 and not tainted:
+            offer = self._offer_skill_request(text, source, now)
+            if offer is not None:
+                said = f"{said}\n{offer}"
+                stages.append("skill request offered")
         return Reply(said, "chat", stages, role)
+
+    def _offer_skill_request(self, text: str, source: str, now: datetime) -> str | None:
+        """FLINS just said "I can't do that yet". Offer to pass your words to Hermes as a
+        skill request; it is saved only on your yes. Never after a tool ran in the turn, so
+        nothing a file or a web page said can end up in a request."""
+        cfg = self._cfg.skill_requests
+        wish = " ".join(text.split())
+        can = getattr(self._commands, "can_request_skill", None)
+        save = getattr(self._commands, "request_skill", None)
+        if (
+            not cfg.offer
+            or not callable(can)
+            or not callable(save)
+            or not can()
+            or not 10 <= len(wish) <= 300
+            or is_secret(wish)
+            or self._commands.awaiting(source)
+        ):
+            return None
+        cooldown = timedelta(minutes=cfg.cooldown_minutes)
+        if self._last_offer is not None and now - self._last_offer < cooldown:
+            return None
+        self._last_offer = now
+
+        async def run() -> str:
+            return str(save(wish, source))
+
+        return self._commands.confirm(
+            source, f'Want me to pass this to Hermes as a skill request: "{wish}"?', run
+        )
 
     async def _suggest_memory(self, out: ChatOut, source: str, now: datetime) -> str | None:
         """The model may *propose* a memory. FLINS asks you; only "yes" saves it, and exactly

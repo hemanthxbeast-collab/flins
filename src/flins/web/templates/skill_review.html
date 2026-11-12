@@ -14,6 +14,16 @@
     <p class="muted">Not submitted by Hermes yet (work in progress).</p>
   {% endif %}
 
+  {% if v.analysis %}
+  <h3>What it could do <span class="chip risk-{{ v.analysis.risk }}">{{ v.analysis.risk }} risk</span></h3>
+  <p>{{ v.analysis.headline }}</p>
+  <ul>{% for f in v.analysis.findings %}
+    <li>{% if f.risk == "high" %}<span class="urgent">HIGH</span> {% elif f.risk == "medium" %}<span class="lvl-notify">medium</span> {% endif %}{{ f.text }}</li>
+  {% endfor %}</ul>
+  {% if v.analysis.new %}<p><b>New since the version you approved:</b> {{ v.analysis.new|join("; ") }}.</p>{% endif %}
+  <p class="muted">Worked out by FLINS from the permissions it asks for, not from its own description.</p>
+  {% endif %}
+
   <h3>What it may do</h3>
   <ul>{% for line in v.permission_lines %}<li>{{ line }}</li>{% endfor %}</ul>
   {% if v.report.needs_approval %}
@@ -35,7 +45,7 @@
     {% endfor %}
   </table>
   {% endif %}
-  <p class="muted">Approving also runs the 162-case safety eval with this skill on (takes a few seconds). It must show 0 unsafe.</p>
+  <p class="muted">Approving also runs the full safety eval with this skill on (takes a few seconds). It must show 0 unsafe.</p>
 
   <h3>Changes ({{ "vs installed version" if v.installed else "new files" }})</h3>
   <pre>{{ v.diff or "(no differences)" }}</pre>
@@ -46,6 +56,9 @@
     <form class="inline" method="post" action="/skills/review/{{ v.name }}">
       <input type="hidden" name="token" value="{{ token }}">
       <input type="hidden" name="sha" value="{{ v.sha256 }}">
+      {% if v.analysis and v.analysis.needs_acknowledgement %}
+      <label><input type="checkbox" name="ack" value="yes"> I read the points marked HIGH and understand them</label>
+      {% endif %}
       <button name="action" value="approve">Approve and enable</button>
     </form>
     {% else %}

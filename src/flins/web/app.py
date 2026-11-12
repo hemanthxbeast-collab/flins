@@ -8,9 +8,11 @@ stop other websites in your browser (CSRF) and DNS-rebinding tricks from driving
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -32,6 +34,7 @@ from flins.core.clock import Clock, SystemClock, from_iso, to_iso
 from flins.core.commands import CommandRouter
 from flins.core.db import connect, migrate
 from flins.core.events import EventBus
+from flins.core.holds import HoldStore
 from flins.core.levels import Level
 from flins.core.modes import ModeManager
 from flins.core.policy_schema import Policy
@@ -48,6 +51,7 @@ from flins.wiring import (
     plan_store,
     start_assistant,
     task_store,
+    tool_box,
 )
 
 TIERS = ["inner", "trusted", "known", "unknown", "blocked"]
@@ -598,6 +602,177 @@ def create_app(
                 return RedirectResponse("/pair?msg=" + quote(str(exc)), 303)
         return RedirectResponse("/pair", 303)
 
+    # ------------------------------------------------------- home, activity, automations (J9)
+
+    def brief(payload: str) -> str:
+        """An audit payload as "key: value, ..." (audit rows never hold message text)."""
+        try:
+            data = json.loads(payload)
+        except ValueError:
+            return ""
+        if not isinstance(data, dict):
+            return str(data)[:160]
+        parts = []
+        for key, value in data.items():
+            if value is None or value == [] or value == {}:
+                continue
+            shown = value if isinstance(value, str | int | float | bool) else json.dumps(value)
+            parts.append(f"{key}: {str(shown)[:60]}")
+        return ", ".join(parts)[:400]
+
+    def features(s: Settings) -> list[dict[str, Any]]:
+        a, v = s.app.assistant, s.app.voice
+        tools = [t.name for t in tool_box(s).tools]
+        online = [t for t in tools if t in ("weather", "wikipedia", "github")]
+        local = [t for t in tools if t not in online]
+        sending = "approved drafts and holding replies really go out"
+        return [
+            {"name": "Sending", "on": not policy.dry_run,
+             "detail": sending if not policy.dry_run else "dry run: nothing is sent"},
+            {"name": "Automatic replies", "on": policy.auto_replies != "off",
+             "detail": policy.auto_replies.replace("_", " ")},
+            {"name": "Briefings and heads-ups", "on": a.proactive.enabled,
+             "detail": f"morning {a.proactive.morning or 'none'}, "
+                       f"evening {a.proactive.evening or 'none'}"},
+            {"name": "Tools", "on": bool(local), "detail": ", ".join(local) or "none"},
+            {"name": "Online tools", "on": bool(online), "detail": ", ".join(online) or "none"},
+            {"name": "Asking about chats", "on": a.chats.enabled,
+             "detail": "what did X say, summarise, reply to him"},
+            {"name": "Memory", "on": a.memory.enabled, "detail": "what you asked it to remember"},
+            {"name": "Voice", "on": v.enabled,
+             "detail": f"speech on {v.stt_device}, follow-up: {v.follow_up}, "
+                       f"wake word {'on' if v.wake_word else 'off'}"},
+        ]  # fmt: skip
+
+    @app.get("/home", response_class=HTMLResponse)
+    async def home(request: Request) -> HTMLResponse:
+        s = need_settings()
+        now = clk.now()
+        local_now = now.astimezone(tz)
+        day_end = local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        async with db() as conn:
+            tasks = task_store(s, conn)
+            open_tasks = await tasks.open()
+            due = [t for t in open_tasks if t.when is not None and t.when < day_end]
+            holds = await HoldStore(conn).all(now)
+            pending = len(await ApprovalService(conn, policy).pending(now))
+            async with conn.execute(
+                "SELECT ts, kind, payload FROM audit_log ORDER BY id DESC LIMIT 8"
+            ) as cur:
+                recent = [
+                    {"ts": r[0], "kind": r[1], "details": brief(r[2])[:140]}
+                    for r in await cur.fetchall()
+                ]
+            async with conn.execute(
+                "SELECT COUNT(*) FROM decisions WHERE created_at >= ?",
+                (to_iso(day_end - timedelta(days=1)),),
+            ) as cur:
+                row = await cur.fetchone()
+        return page(
+            request,
+            "home.html",
+            assistant_name=s.app.assistant.name,
+            today=[t.line(now, tasks.tz) for t in due[:8]],
+            overdue=sum(1 for t in due if t.when is not None and t.when < now),
+            holds=[{"name": h.name, "until": to_iso(h.until)} for h in holds],
+            pending=pending,
+            messages_today=int(row[0]) if row else 0,
+            features=features(s),
+            recent=recent,
+            mode=await mode_text(),
+        )
+
+    @app.get("/activity", response_class=HTMLResponse)
+    async def activity(request: Request, kind: str = "") -> HTMLResponse:
+        wanted = kind if re.fullmatch(r"[a-z_.]{1,40}", kind) else ""
+        async with db() as conn:
+            async with conn.execute(
+                "SELECT ts, actor, kind, payload FROM audit_log WHERE kind LIKE ? "
+                "ORDER BY id DESC LIMIT 200",
+                (f"{wanted}%",),
+            ) as cur:
+                rows = [
+                    {"ts": r[0], "actor": r[1], "kind": r[2], "details": brief(r[3])}
+                    for r in await cur.fetchall()
+                ]
+            async with conn.execute(
+                "SELECT kind, COUNT(*) FROM audit_log GROUP BY kind ORDER BY 2 DESC LIMIT 30"
+            ) as cur:
+                kinds = [{"kind": r[0], "n": r[1]} for r in await cur.fetchall()]
+        return page(
+            request, "activity.html", rows=rows, kinds=kinds, kind=wanted, mode=await mode_text()
+        )
+
+    @app.get("/automations", response_class=HTMLResponse)
+    async def automations(request: Request) -> HTMLResponse:
+        s = need_settings()
+        now = clk.now()
+        async with db() as conn:
+            tasks = task_store(s, conn)
+            repeating = [t.line(now, tasks.tz) for t in await tasks.open() if t.repeat != "none"]
+            holds = await HoldStore(conn).all(now)
+            async with conn.execute(
+                "SELECT COALESCE(display_name, push_name, wa_jid), allowed_categories "
+                "FROM contacts WHERE allowed_categories IS NOT NULL ORDER BY 1"
+            ) as cur:
+                topics = [
+                    {"name": r[0], "topics": json.loads(r[1]) if r[1] else []}
+                    for r in await cur.fetchall()
+                ]
+
+        def lasts(d: Any) -> str:
+            if d is None:
+                return "until you change it"
+            minutes = int(d.total_seconds() // 60)
+            return f"{minutes // 60} h" if minutes % 60 == 0 else f"{minutes} min"
+
+        modes = []
+        for mode, mp in policy.modes.items():
+            modes.append(
+                {"name": mode.value.capitalize(), "base": "", "say": "",
+                 "lasts": lasts(mp.default_duration), "ceiling": mp.ceiling.name,
+                 "template": policy.templates.get(mp.holding_template or "", "")}
+            )  # fmt: skip
+        for name, prof in policy.profiles.items():
+            base = policy.modes[prof.base]
+            ceiling = min(prof.ceiling, base.ceiling) if prof.ceiling is not None else base.ceiling
+            template = prof.holding_template or base.holding_template or ""
+            modes.append(
+                {"name": name, "base": prof.base.value.lower(),
+                 "say": ", ".join(f'"{p}"' for p in prof.phrases()),
+                 "lasts": lasts(prof.default_duration or base.default_duration),
+                 "ceiling": ceiling.name, "template": policy.templates.get(template, "")}
+            )  # fmt: skip
+        engine = SkillEngine(s.skills_dir, s.skill_runs_dir, tz=tz, conn=None)
+        return page(
+            request,
+            "automations.html",
+            assistant_name=s.app.assistant.name,
+            holds=[{"name": h.name, "jid": h.jid, "until": to_iso(h.until)} for h in holds],
+            repeating=repeating,
+            proactive=s.app.assistant.proactive,
+            modes=modes,
+            topics=topics,
+            skills=[x.name for x in engine.all() if x.runnable],
+            mode=await mode_text(),
+        )
+
+    @app.post("/holds/release")
+    async def hold_release(jid: str = Form(...), token: str = Form(...)) -> RedirectResponse:
+        check_token(token)
+        async with db() as conn:
+            holds = HoldStore(conn)
+            names = {h.jid: h.name for h in await holds.all(clk.now())}
+            released = await holds.release(jid)
+            if released:
+                await AuditLog(conn).record(
+                    "user",
+                    "hold.released",
+                    {"contact_id": await holds.contact_id(jid), "via": "dashboard"},
+                )
+        msg = f"Released {names.get(jid, 'them')}." if released else "That hold had already ended."
+        return RedirectResponse(f"/automations?msg={quote(msg)}", status_code=303)
+
     # ------------------------------------------------------------------ skills (M8)
 
     @app.get("/skills", response_class=HTMLResponse)
@@ -632,6 +807,7 @@ def create_app(
         token: str = Form(...),
         sha: str = Form(""),
         note: str = Form(""),
+        ack: str = Form(""),
     ) -> RedirectResponse:
         check_token(token)
         r = need_reviewer()
@@ -639,7 +815,7 @@ def create_app(
         async with db() as conn:
             try:
                 if action == "approve":
-                    ok, msg = await r.approve(conn, name, sha)
+                    ok, msg = await r.approve(conn, name, sha, acknowledged=ack == "yes")
                     if not ok:
                         return RedirectResponse(
                             f"/skills/review/{name}?msg={quote(msg)}", status_code=303

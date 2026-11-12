@@ -310,7 +310,7 @@ async def test_review_and_approve_in_the_dashboard(
 
     r = dash.post(
         "/skills/review/eta_note",
-        data={"action": "approve", "token": "T", "sha": sha},
+        data={"action": "approve", "token": "T", "sha": sha, "ack": "yes"},
         follow_redirects=False,
     )
     assert r.status_code == 303 and "Enabled" in r.headers["location"]

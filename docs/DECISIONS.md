@@ -2,6 +2,35 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 9: polish (2026-11-13)
+- **`/` stays the Inbox.** Home is a new page and first in the menu, so bookmarks and the
+  existing tests keep working.
+- **Read-only, with one exception.** Releasing a hold only restores what the policy already
+  allowed, so it gets a button. Topic limits, modes and feature switches are shown but
+  changed in the config files or the CLI, as before.
+- **The Activity page is safe to leave open** because audit rows have never held message
+  text, titles or names (a rule since M0, tested phase by phase). The page adds no new data.
+- **The mode table shows the actual holding reply text.** It is the one thing other people
+  see, so it is the thing worth being able to check at a glance.
+
+## Phase 8: Hermes (2026-11-13)
+- **Offer, don't auto-file.** A request is written only after the owner says yes to the
+  exact words, and only the owner's own utterance goes in: never the model's reply, and
+  never in a turn where a tool produced outside content.
+- **Honest wording.** Skills can only react to incoming messages or the summary command, so
+  many "can't do" requests can't become skills. FLINS says "pass this to Hermes", and the
+  docs say Hermes may not be able to build it.
+- **Risk comes from the manifest.** Hermes writes the description and the summary; neither is
+  an input to the analysis. The two HIGH rules are the two ways a skill could cause harm
+  the owner doesn't see first: sending unreviewed, and reading private data while able to
+  reach a network host.
+- **Acknowledgement is server-side.** A tick box that only the page checks would be
+  decoration; `Reviewer.approve` refuses without it.
+- **The existing sample skill is high risk** (it asks for AUTO_SAFE). Its test now ticks the
+  box: that is the intended new behaviour, not a regression.
+- **Not done:** static analysis of the handler code itself (what it does with what it
+  reads). The diff is shown for the owner to read; the analysis is about permissions.
+
 ## Phase 7: proactive (2026-11-13)
 - **Off by default.** The stated risk is spam, and an assistant that starts talking unasked
   is a change of character. One line switches it on.

@@ -240,6 +240,13 @@ class ChatsConfig(_Strict):
     summarise: bool = True
 
 
+class SkillRequestsConfig(_Strict):
+    """When FLINS can't do something, it may offer to pass your request to Hermes (phase 8)."""
+
+    offer: bool = True
+    cooldown_minutes: int = Field(default=30, ge=1, le=1440)  # at most one offer in this time
+
+
 _HHMM = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
 
 
@@ -294,6 +301,7 @@ class AssistantConfig(_Strict):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     chats: ChatsConfig = Field(default_factory=ChatsConfig)
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
+    skill_requests: SkillRequestsConfig = Field(default_factory=SkillRequestsConfig)
 
 
 class AppConfig(_Strict):

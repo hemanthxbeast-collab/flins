@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.22.0: phase 9, polish (2026-11-13)
+- **Home** (`/home`): mode, drafts waiting, today's tasks, who is on hold, what is switched
+  on, the last things FLINS did.
+- **Activity** (`/activity`): the audit log, newest first, filter by kind. A filter that
+  isn't a plain kind name is ignored.
+- **Automations** (`/automations`): holds with a Release button, repeating reminders,
+  briefing settings, every mode with its phrases, length, ceiling and the holding reply
+  people would get, topic limits per person, enabled skills.
+- Holds are now audited: `hold.set` and `hold.released` (contact id, never a name).
+- Menu: Home first; Automations and Activity added. `/` is still the Inbox.
+- Looked at in the browser with made-up data on a throwaway project.
+- Tests: 1238 Python (7 new for these pages).
+
+## 0.21.0: phase 8, Hermes (2026-11-13)
+- **"I can't do that yet" can become a request.** After such an answer FLINS may offer to
+  pass your words to Hermes as a skill request; it is saved only on your yes. At most one
+  offer per 30 minutes; never for secrets, very short or very long text, or in a turn where
+  a tool ran. `assistant.skill_requests` (`offer`, `cooldown_minutes`).
+- **Risk analysis on the review page**: low / medium / high with reasons, from the manifest
+  (permissions, hosts, level), plus what is new since the version you approved. The skill's
+  own description plays no part.
+- **High risk needs an acknowledgement**, enforced by the server: replies that could go out
+  unseen (AUTO_SAFE / AUTO), or message / calendar access combined with network access.
+  The audit row records the risk and the acknowledgement.
+- `flins chat` and `flins ask` can save skill requests too.
+- The review page no longer hard-codes the eval size.
+- Tests: 25 new (`test_j8_hermes.py`).
+
 ## 0.20.0: phase 7, proactive (2026-11-13)
 - **Morning briefing, evening summary, deadline heads-up.** FLINS can now speak first, to
   you only: a self-chat note and, when allowed, a short spoken line. Off by default

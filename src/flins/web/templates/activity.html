@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2 style="margin-top:0">Activity</h2>
+  <p class="muted">Everything FLINS decided or did, newest first. These records never contain
+    message text, task titles or names: only what kind of thing happened and its numbers.</p>
+  <div class="row">
+    <a class="chip" href="/activity">all</a>
+    {% for k in kinds %}<a class="chip" href="/activity?kind={{ k.kind }}">{{ k.kind }} ({{ k.n }})</a>{% endfor %}
+  </div>
+</div>
+{% if kind %}<p>Showing <b>{{ kind }}</b>. <a href="/activity">Show all</a></p>{% endif %}
+{% if not rows %}<p class="muted">Nothing recorded{{ " for this kind" if kind else " yet" }}.</p>{% else %}
+<table>
+  <tr><th style="width:120px">When</th><th style="width:90px">Who</th><th style="width:210px">What</th><th>Details</th></tr>
+  {% for r in rows %}
+  <tr><td class="muted">{{ r.ts|local("%d %b %H:%M:%S") }}</td><td>{{ r.actor }}</td>
+      <td><a href="/activity?kind={{ r.kind }}">{{ r.kind }}</a></td><td class="muted">{{ r.details }}</td></tr>
+  {% endfor %}
+</table>
+<p class="muted">The latest {{ rows|length }} records.</p>
+{% endif %}
+{% endblock %}

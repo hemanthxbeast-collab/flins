@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2 style="margin-top:0">Automations</h2>
+  <p class="muted">Everything that happens without you asking, in one place. To change these,
+    talk to {{ assistant_name }} or edit the config files; only a hold can be released here.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">On hold</h3>
+  {% if not holds %}<p class="muted">Nobody. Say "hold Rahul till 6" to stop all replies to one person for a while.</p>{% endif %}
+  {% for h in holds %}
+  <form method="post" action="/holds/release" class="row">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="jid" value="{{ h.jid }}">
+    <span style="flex:1">{{ h.name }} <span class="chip">until {{ h.until|local("%a %H:%M") }}</span></span>
+    <button name="action" value="release">Release</button>
+  </form>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Repeating reminders</h3>
+  {% if not repeating %}<p class="muted">None. Say "remind me every weekday at 8 to ...".</p>{% endif %}
+  {% for line in repeating %}<div>• {{ line }}</div>{% endfor %}
+  <p style="margin-bottom:0"><a href="/tasks">All tasks and reminders</a></p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Briefings and heads-ups
+    {% if proactive.enabled %}<span class="chip lvl-auto">on</span>{% else %}<span class="chip">off</span>{% endif %}</h3>
+  <table>
+    <tr><td style="width:190px">Morning briefing</td><td>{{ proactive.morning or "none" }}</td></tr>
+    <tr><td>Evening summary</td><td>{{ proactive.evening or "none" }}</td></tr>
+    <tr><td>Deadline heads-up</td><td>{% if proactive.nudges %}{{ proactive.nudge_minutes }} minutes before{% else %}off{% endif %}</td></tr>
+    <tr><td>Quiet hours (not spoken)</td><td>{{ proactive.quiet_hours|join(" to ") or "none" }}</td></tr>
+    <tr><td>At most per day</td><td>{{ proactive.max_per_day }}</td></tr>
+  </table>
+  <p class="muted">Set under <code>assistant.proactive</code> in <code>config/flins.yaml</code>. They go to you only.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Modes</h3>
+  <table>
+    <tr><th>Mode</th><th>Say</th><th>Lasts</th><th>Most it does</th><th>Holding reply</th></tr>
+    {% for m in modes %}
+    <tr><td>{{ m.name }}{% if m.base %} <span class="muted">({{ m.base }})</span>{% endif %}</td>
+        <td class="muted">{{ m.say }}</td><td>{{ m.lasts }}</td><td>{{ m.ceiling }}</td><td class="muted">{{ m.template }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">Defined in <code>config/policy.yaml</code>. Every mode ends by itself.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Topic limits per person</h3>
+  {% if not topics %}<p class="muted">None. <code>flins contacts topics "&lt;name&gt;" &lt;topic&gt; ...</code> limits what FLINS answers by itself for one person.</p>{% endif %}
+  {% for t in topics %}<div>{{ t.name }}: <span class="muted">answers by itself only about</span> {{ t.topics|join(", ") or "nothing" }}</div>{% endfor %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Skills that are on</h3>
+  {% if not skills %}<p class="muted">None.</p>{% endif %}
+  {% for s in skills %}<div>• {{ s }}</div>{% endfor %}
+  <p style="margin-bottom:0"><a href="/skills">Skills and reviews</a></p>
+</div>
+{% endblock %}

@@ -37,6 +37,9 @@
   .lvl-notify { color: var(--warn); font-weight: 600; }
   .lvl-ignore { color: var(--muted); }
   .urgent { color: var(--bad); font-weight: 700; }
+  .risk-high { color: var(--bad); font-weight: 700; } .risk-medium { color: var(--warn); }
+  .risk-low { color: var(--ok); }
+  code { background: var(--chip); padding: 0 4px; border-radius: 4px; }
   .draft { border-left: 3px solid var(--line); padding: 4px 10px; margin: 8px 0 2px; white-space: pre-wrap; }
   .draft.send { border-left-color: var(--ok); }
   button, select, input[type=text], input[type=search] {
@@ -57,7 +60,7 @@
 <body>
 <header>
   <b>FLINS</b>
-  <nav><a href="/chat">Chat</a><a href="/tasks">Tasks</a><a href="/memory">Memory</a><a href="/">Inbox</a><a href="/contacts">Contacts</a><a href="/pair">WhatsApp</a><a href="/skills">Skills{% if skills_waiting %} <span class="chip">{{ skills_waiting }} to review</span>{% endif %}</a></nav>
+  <nav><a href="/home">Home</a><a href="/chat">Chat</a><a href="/tasks">Tasks</a><a href="/memory">Memory</a><a href="/">Inbox</a><a href="/contacts">Contacts</a><a href="/automations">Automations</a><a href="/activity">Activity</a><a href="/pair">WhatsApp</a><a href="/skills">Skills{% if skills_waiting %} <span class="chip">{{ skills_waiting }} to review</span>{% endif %}</a></nav>
   <span class="muted">{{ mode if mode else "" }}</span>
 </header>
 <main>
