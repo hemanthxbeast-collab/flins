@@ -26,9 +26,11 @@ from flins.core.grammar import (
     ModeCommand,
     ParseError,
     StatusCommand,
+    normalise,
     parse,
     parse_time,
 )
+from flins.core.holds import DEFAULT_HOLD, MAX_HOLD, HoldError, HoldStore, parse_hold
 from flins.core.intents import (
     ContactMatch,
     Intent,
@@ -222,7 +224,7 @@ class CommandRouter:
         if follow is not None and follow.expires > now:
             if _plain(text) in NO:
                 return "Okay, never mind."
-            command = parse(text, now=now, tz=self._tz)
+            command = parse(text, now=now, tz=self._tz, profiles=self._policy.profiles)
             if command is None or isinstance(command, ParseError):
                 return await self._answer(follow, text, source)
             # A clear command ("stop", "status", ...) wins over the open question.
@@ -236,8 +238,11 @@ class CommandRouter:
                 "for your review on the dashboard's Skills page."
             )
 
-        cmd = parse(text, now=now, tz=self._tz)
+        cmd = parse(text, now=now, tz=self._tz, profiles=self._policy.profiles)
         if cmd is None:
+            held = await self._hold(text, source, now)
+            if held is not None:
+                return held
             return await self._tier_b(text, source)
         if isinstance(cmd, ParseError):
             return cmd.message
@@ -262,6 +267,55 @@ class CommandRouter:
         except TransitionError as exc:
             return str(exc)
         return result.readback
+
+    async def _hold(self, text: str, source: str, now: datetime) -> str | None:
+        """ "hold Rahul till 6", "release Rahul", "who is on hold" (core/holds.py). A hold only
+        ever stops replies, so it needs no confirmation."""
+        if self._conn is None:
+            return None
+        cmd = parse_hold(normalise(text))
+        if cmd is None:
+            return None
+        holds = HoldStore(self._conn)
+        if cmd.op == "list":
+            active = await holds.all(now)
+            if not active:
+                return "Nobody is on hold."
+            return (
+                "On hold: " + "; ".join(f"{h.name} until {self._hm(h.until)}" for h in active) + "."
+            )
+        if cmd.op == "release_all":
+            n = await holds.release_all()
+            return "Nobody was on hold." if not n else "Released everyone who was on hold."
+        matches = await find_contacts(self._conn, cmd.name)
+        if not matches:
+            return f"I couldn't find a contact called {cmd.name}." if cmd.strict else None
+        if len(matches) > 1:
+            names = ", ".join(m.name for m in matches[:4])
+            return f"Which one: {names}? Say it again with the full name."
+        who = matches[0]
+        if cmd.op == "release":
+            if await holds.release(who.jid):
+                return f"Released {who.name}. FLINS handles their messages as usual again."
+            return f"{who.name} isn't on hold."
+        if cmd.time is not None:
+            until = parse_time(cmd.time, now, self._tz)
+            if until is None:
+                return f"I didn't understand the time {cmd.time!r}."
+        else:
+            await self._modes.refresh()
+            state = self._modes.state
+            until = now + DEFAULT_HOLD
+            if state.until is not None and now < state.until <= now + MAX_HOLD:
+                until = state.until  # until the mode you're in ends
+        try:
+            await holds.set(who.jid, until, source=source, now=now)
+        except HoldError as exc:
+            return str(exc)
+        return (
+            f"Holding {who.name}'s messages until {self._hm(until)}. I won't reply to them; "
+            "what they send will be in your summary, and urgent ones still alert you."
+        )
 
     async def _approval(self, cmd: ApprovalCommand, source: str) -> str:
         if self._approvals is None:

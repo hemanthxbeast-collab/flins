@@ -54,6 +54,16 @@ def _mode_name(mode: Mode) -> str:
     return mode.value.capitalize()
 
 
+def _title(mode: Mode, profile: str | None) -> str:
+    """ "Working mode", "Working mode (working-strict)", or a mode of your own: "Sleep mode"."""
+    if not profile:
+        return f"{_mode_name(mode)} mode"
+    if "-" in profile:
+        return f"{_mode_name(mode)} mode ({profile})"
+    name = profile.replace("_", " ")
+    return f"{name.upper() if len(name) <= 3 else name.capitalize()} mode"
+
+
 def _dry(ctx: Context) -> str:
     return " (Dry run: nothing will be sent.)" if ctx.dry_run else ""
 
@@ -109,7 +119,6 @@ def transition(
         return lead
 
     assert after.until is not None
-    profile = f" ({after.profile})" if after.profile else ""
     who = (
         f"I may reply to {ctx.auto_contacts} of your close contacts by myself; "
         "everything else waits for you."
@@ -117,7 +126,7 @@ def transition(
         else "Everything waits for you."
     )
     return (
-        f"{_mode_name(after.mode)} mode{profile} on until {clock_time(after.until, ctx)}. "
+        f"{_title(after.mode, after.profile)} on until {clock_time(after.until, ctx)}. "
         f"{who} Say 'cancel' within 10 seconds to undo.{_dry(ctx)}"
     )
 
@@ -127,12 +136,9 @@ def status(state: ModeState, ctx: Context) -> str:
         return "Paused. Say 'resume' to continue."
     if state.mode == Mode.NORMAL or state.until is None:
         return f"Normal mode.{_dry(ctx)}"
-    profile = f" ({state.profile})" if state.profile else ""
     if state.until <= ctx.now:
         return f"{_mode_name(state.mode)} mode has ended; switching back to normal."
-    return (
-        f"{_mode_name(state.mode)} mode{profile} until {clock_time(state.until, ctx)}.{_dry(ctx)}"
-    )
+    return f"{_title(state.mode, state.profile)} until {clock_time(state.until, ctx)}.{_dry(ctx)}"
 
 
 def expiring(state: ModeState, tz: ZoneInfo) -> str:

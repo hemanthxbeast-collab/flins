@@ -138,6 +138,7 @@ class DecisionInputs:
     triage: TriageResult | None = None
     skill_ceiling: Level | None = None
     budget_ok: bool = True
+    hold: bool = False  # you put this contact on hold: send them nothing (phase 6b)
 
 
 @dataclass(frozen=True)
@@ -341,6 +342,7 @@ def decide(inp: DecisionInputs, policy: Policy) -> Decision:
     mode_pol = policy.modes[inp.mode]
     ceilings["mode"] = Level.IGNORE if inp.mode == Mode.PAUSED else mode_pol.ceiling
     profile = policy.profiles.get(inp.profile) if inp.profile else None
+    active = profile is not None and profile.base == inp.mode
     if profile is not None and profile.base == inp.mode and profile.ceiling is not None:
         ceilings["profile"] = profile.ceiling
 
@@ -354,6 +356,8 @@ def decide(inp: DecisionInputs, policy: Policy) -> Decision:
     ceilings["tier"] = tier_ceiling
     if inp.contact_max_level is not None:
         ceilings["contact"] = inp.contact_max_level
+    if inp.hold:
+        ceilings["hold"] = Level.NOTIFY
 
     # Category: the most cautious of hard-rule, triage and structural categories.
     candidates = [h.category for h in inp.hits if h.category]
@@ -402,7 +406,8 @@ def decide(inp: DecisionInputs, policy: Policy) -> Decision:
     template: str | None = None
     if level == Level.AUTO_SAFE:
         cat_pol = policy.categories.get(category)
-        template = (cat_pol.template if cat_pol else None) or mode_pol.holding_template
+        own = profile.holding_template if profile is not None and active else None
+        template = (cat_pol.template if cat_pol else None) or own or mode_pol.holding_template
         if (
             tier_pol is not None
             and not tier_pol.holding_reply
@@ -418,7 +423,10 @@ def decide(inp: DecisionInputs, policy: Policy) -> Decision:
     cat_pol = policy.categories.get(category)
     escalate |= bool(cat_pol and cat_pol.escalate)
     urgency = max(inp.triage.urgency if inp.triage else 0, 3 if escalate else 0)
-    interrupt = escalate or urgency >= mode_pol.interrupt_threshold
+    threshold = mode_pol.interrupt_threshold
+    if profile is not None and active and profile.interrupt_threshold is not None:
+        threshold = profile.interrupt_threshold
+    interrupt = escalate or urgency >= threshold
 
     return Decision(
         level=level,
@@ -444,6 +452,7 @@ def decide_message(
     allowed_categories: list[str] | None = None,
     triage: TriageResult | None = None,
     budget_ok: bool = True,
+    hold: bool = False,
 ) -> Decision:
     """Convenience: hard rules + decide in one call."""
     hits = evaluate_hard_rules(ctx, policy)
@@ -461,6 +470,7 @@ def decide_message(
             allowed_categories=allowed_categories,
             triage=triage,
             budget_ok=budget_ok,
+            hold=hold,
         ),
         policy,
     )

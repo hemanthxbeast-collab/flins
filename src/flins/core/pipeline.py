@@ -23,6 +23,7 @@ from flins.core.clock import Clock, from_iso, to_iso
 from flins.core.debounce import Debouncer
 from flins.core.events import Event, EventBus
 from flins.core.guard import GuardInput, GuardResult, check
+from flins.core.holds import HoldStore
 from flins.core.levels import Level, Mode
 from flins.core.modes import ModeManager, ModeState, effective_mode
 from flins.core.outbox import OutboxError, enqueue, holding_reply_sent_this_session
@@ -267,6 +268,8 @@ class Pipeline:
             profile=state.profile if mode == state.mode else None,
             contact_max_level=Level(max_level) if max_level is not None else None,
             allowed_categories=json.loads(allowed) if allowed else None,
+            hold=contact is not None
+            and await HoldStore(self._conn).active(contact["wa_jid"], now) is not None,
         )
         notes: list[str] = []
         pre = decide(base, self._policy)

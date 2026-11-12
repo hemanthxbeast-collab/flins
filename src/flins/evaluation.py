@@ -35,6 +35,7 @@ from flins.core.audit import AuditLog
 from flins.core.clock import FrozenClock
 from flins.core.db import connect, migrate
 from flins.core.events import EventBus
+from flins.core.holds import HoldStore
 from flins.core.ingest import Ingestor
 from flins.core.levels import Level
 from flins.core.modes import ModeEvent, ModeManager
@@ -76,6 +77,7 @@ class CaseResult:
 @dataclass
 class EvalReport:
     results: list[CaseResult]
+    skipped: int = 0  # cases for a mode of your own that this policy doesn't define
 
     @property
     def total(self) -> int:
@@ -100,6 +102,11 @@ class EvalReport:
         if calls and show_usage:
             cost = sum(r.cost_usd for r in self.results)
             lines.append(f"LLM calls: {calls}, cost ≈ ${cost:.3f}")
+        if self.skipped:
+            lines.append(
+                f"{self.skipped} cases skipped: they use the modes dnd / sleep / travel, which "
+                "this policy.yaml doesn't define (see config/policy.example.yaml)"
+            )
         for r in self.results:
             if r.over_cautious:
                 lines.append(f"  cautious {r.id}: {r.level}")
@@ -199,10 +206,22 @@ async def run_case(
             until = (
                 clock.now().astimezone(tz).replace(hour=18, minute=0) if mode == "WORKING" else None
             )
-            await modes.apply(MODE_EVENTS[mode], source="eval", until=until)
+            await modes.apply(
+                MODE_EVENTS[mode], source="eval", until=until, profile=case.get("profile")
+            )
         elif mode == "PAUSED":
             await modes.apply(ModeEvent.ENTER_WORKING, source="eval")
             await modes.apply(ModeEvent.KILL, source="eval")
+        if case.get("topics") is not None:  # what FLINS may answer by itself for them
+            await conn.execute(
+                "UPDATE contacts SET allowed_categories = ? WHERE wa_jid = ?",
+                (json.dumps(case["topics"]), CONTACT),
+            )
+            await conn.commit()
+        if case.get("hold"):  # you put this contact on hold
+            await HoldStore(conn).set(
+                CONTACT, clock.now() + timedelta(hours=2), source="eval", now=clock.now()
+            )
         clock.advance(timedelta(minutes=1))
 
         ids = []
@@ -265,8 +284,9 @@ async def run_eval(
     skills: SkillsFactory | None = None,
 ) -> EvalReport:
     workdir.mkdir(parents=True, exist_ok=True)
+    usable = [c for c in cases if not c.get("profile") or c["profile"] in policy.profiles]
     results = [
         await run_case(c, policy, workdir, prompts_dir, backend, brain_factory, skills)
-        for c in cases
+        for c in usable
     ]
-    return EvalReport(results)
+    return EvalReport(results, skipped=len(cases) - len(usable))

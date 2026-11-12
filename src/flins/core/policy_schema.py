@@ -35,6 +35,8 @@ HARD_NOTIFY_FLAGS: frozenset[str] = frozenset(
     {"money", "credentials", "pii", "legal_medical", "injection_suspected"}
 )
 TIMED_MODES: frozenset[Mode] = frozenset({Mode.WORKING, Mode.FOCUS, Mode.AWAY})
+MAX_PROFILE_DURATION = timedelta(hours=12)  # the same limit modes have
+MIN_PHRASE_CHARS = 3
 
 _DURATION_RE = re.compile(r"^\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*$", re.IGNORECASE)
 
@@ -76,9 +78,19 @@ class ModePolicy(_Strict):
 
 
 class ProfilePolicy(_Strict):
+    """A named variant of a busy mode. With `say` it is a mode of your own ("sleep mode"):
+    its own phrases, holding reply, length and interrupt threshold (JARVIS phase 6b)."""
+
     base: Mode
     ceiling: LevelField | None = None
     tiers: dict[str, LevelField] = Field(default_factory=dict)
+    say: list[str] = Field(default_factory=list, max_length=12)  # phrases that start it
+    default_duration: Duration = None  # else the base mode's
+    holding_template: str | None = None  # else the base mode's
+    interrupt_threshold: int | None = Field(default=None, ge=0, le=3)  # else the base mode's
+
+    def phrases(self) -> list[str]:
+        return [" ".join(p.lower().replace("\u2019", "'").split()) for p in self.say]
 
 
 class TierPolicy(_Strict):
@@ -232,9 +244,33 @@ class Policy(_Strict):
             warn.append(f"modes.PAUSED.ceiling {paused.ceiling.name} clamped to IGNORE")
             paused.ceiling = Level.IGNORE
 
+        from flins.core.grammar import is_fixed_command  # here: grammar imports this module
+
+        taken: dict[str, str] = {}
         for name, profile in self.profiles.items():
             if profile.base == Mode.PAUSED:
                 raise ValueError(f"profile {name!r} cannot be based on PAUSED")
+            d = profile.default_duration
+            if d is not None and not timedelta(0) < d <= MAX_PROFILE_DURATION:
+                raise ValueError(
+                    f"profiles.{name}.default_duration must be positive and at most 12h"
+                )
+            if profile.say and profile.base not in TIMED_MODES:
+                raise ValueError(
+                    f"profile {name!r} has phrases, so its base must be WORKING, FOCUS or AWAY"
+                )
+            for phrase in profile.phrases():
+                if len(phrase) < MIN_PHRASE_CHARS:
+                    raise ValueError(f"profiles.{name}.say: {phrase!r} is too short")
+                if is_fixed_command(phrase):
+                    raise ValueError(
+                        f"profiles.{name}.say: {phrase!r} already is a FLINS command "
+                        "(stop, resume, status, I'm done, approvals ...)"
+                    )
+                if taken.setdefault(phrase, name) != name:
+                    raise ValueError(
+                        f"profiles.{name}.say: {phrase!r} is also used by profile {taken[phrase]!r}"
+                    )
 
         for cat in sorted(HARD_NOTIFY_CATEGORIES):
             pol = self.categories.get(cat)
@@ -270,6 +306,9 @@ class Policy(_Strict):
         referenced = [
             (f"modes.{m}.holding_template", p.holding_template) for m, p in self.modes.items()
         ] + [(f"categories.{c}.template", p.template) for c, p in self.categories.items()]
+        referenced += [
+            (f"profiles.{n}.holding_template", p.holding_template) for n, p in self.profiles.items()
+        ]
         for where, tpl in referenced:
             if tpl is not None and tpl not in self.templates:
                 raise ValueError(f"{where} refers to unknown template {tpl!r}")

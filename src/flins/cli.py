@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -1358,6 +1358,8 @@ async def _contacts(settings: Settings, action: str, rest: list[str]) -> int:
                     "  No inner/trusted contacts yet. Set tiers on the dashboard's Contacts page."
                 )
             return 0
+        if action == "topics":
+            return await _contact_topics(conn, policy, rest)
         if len(rest) < 2 or rest[-1].lower() not in ("on", "off"):
             print('Usage: flins contacts auto "<name>" on|off')
             return 2
@@ -1391,6 +1393,65 @@ async def _contacts(settings: Settings, action: str, rest: list[str]) -> int:
         return 0
     finally:
         await conn.close()
+
+
+async def _contact_topics(conn: Any, policy: Any, rest: list[str]) -> int:
+    """`flins contacts topics "<name>" [all | <topic> ...]`: what FLINS may answer by itself
+    for one person. Topics not on the list become drafts for your approval."""
+    import json
+
+    from flins.core.clock import to_iso
+    from flins.core.intents import find_contacts
+    from flins.core.policy_schema import HARD_NOTIFY_CATEGORIES
+
+    known = sorted(policy.categories)
+    if not rest:
+        print('Usage: flins contacts topics "<name>" [all | <topic> <topic> ...]')
+        print("Topics: " + ", ".join(known))
+        return 2
+    matches = await find_contacts(conn, rest[0])
+    if not matches:
+        print(f"No contact matches {rest[0]!r}.")
+        return 1
+    if len(matches) > 1:
+        print("Which one? " + ", ".join(m.name for m in matches[:6]))
+        return 1
+    who = matches[0]
+    wanted = [t.strip().lower().rstrip(",") for t in rest[1:] if t.strip(",")]
+    if not wanted:
+        async with conn.execute(
+            "SELECT allowed_categories FROM contacts WHERE wa_jid = ?", (who.jid,)
+        ) as cur:
+            row = await cur.fetchone()
+        current = json.loads(row[0]) if row and row[0] else None
+        if current is None:
+            print(f"{who.name}: no topic limit (the tier and mode decide).")
+        else:
+            print(f"{who.name}: answers by itself only about: {', '.join(current) or 'nothing'}.")
+            print("Everything else becomes a draft for your approval.")
+        return 0
+    if wanted == ["all"]:
+        value = None
+    else:
+        unknown = [t for t in wanted if t not in policy.categories]
+        if unknown:
+            print(f"Unknown topic(s): {', '.join(unknown)}. Topics: {', '.join(known)}")
+            return 1
+        value = json.dumps(sorted(set(wanted)))
+    await conn.execute(
+        "UPDATE contacts SET allowed_categories = ?, updated_at = ? WHERE wa_jid = ?",
+        (value, to_iso(datetime.now(UTC)), who.jid),
+    )
+    await conn.commit()
+    if value is None:
+        print(f"{who.name}: topic limit removed.")
+        return 0
+    print(f"{who.name}: FLINS may answer by itself only about: {', '.join(sorted(set(wanted)))}.")
+    print("Other topics become drafts for your approval. This never raises what the tier allows.")
+    fixed = sorted(set(wanted) & HARD_NOTIFY_CATEGORIES)
+    if fixed:
+        print(f"Note: {', '.join(fixed)} always just tell(s) you, whatever is listed here.")
+    return 0
 
 
 def cmd_contacts(root: Path | None, action: str, rest: list[str]) -> int:
@@ -1498,10 +1559,11 @@ def build_parser() -> argparse.ArgumentParser:
     bk.add_argument("file", nargs="?", type=Path, default=None)
     bk.add_argument("--to", type=Path, default=None, help="backup folder, or restore folder")
     ct = sub.add_parser(
-        "contacts", help="earned auto replies: show progress, or: auto <name> on|off"
+        "contacts",
+        help="earned auto replies: list | auto <name> on|off | topics <name> [all | topic ...]",
     )
-    ct.add_argument("action", nargs="?", default="list", choices=["list", "auto"])
-    ct.add_argument("rest", nargs="*", help="for auto: <name...> on|off")
+    ct.add_argument("action", nargs="?", default="list", choices=["list", "auto", "topics"])
+    ct.add_argument("rest", nargs="*", help="auto: <name...> on|off; topics: <name> [topics]")
     dev = sub.add_parser(
         "skilldev", help="MCP server (stdio) for Hermes to build skills in skills/_incoming"
     )

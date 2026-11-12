@@ -213,7 +213,7 @@ async def test_hermes_builds_and_submits_a_skill_but_cannot_enable_it(
         tested = await hermes.call_tool("test_skill", {"name": "eta_note"})
         report = tested.structured_content
         assert report is not None and report["ok"], report
-        assert report["eval"]["cases"] == 162 and report["eval"]["unsafe"] == []
+        assert report["eval"]["cases"] >= 200 and report["eval"]["unsafe"] == []
         submitted = await hermes.call_tool(
             "submit_skill", {"name": "eta_note", "summary": "Tells people when you're back."}
         )

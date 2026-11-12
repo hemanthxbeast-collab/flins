@@ -160,14 +160,16 @@ def next_state(
         mode = ENTER_EVENTS[event]
         mode_policy = policy.modes[mode]
         assert mode_policy.default_duration is not None  # guaranteed by the policy schema
-        end = until or now + mode_policy.default_duration
-        _check_until(end, now)
+        length = mode_policy.default_duration
         if profile is not None:
             prof = policy.profiles.get(profile)
             if prof is None or prof.base != mode:
                 raise TransitionError(
                     f"There's no {mode.value.lower()} profile called {profile!r}."
                 )
+            length = prof.default_duration or length
+        end = until or now + length
+        _check_until(end, now)
         return remember(
             ModeState(mode=mode, started_at=now, started_by=source, until=end, profile=profile)
         )

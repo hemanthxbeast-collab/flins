@@ -8,12 +8,15 @@ ordinary notes-to-self from flipping modes.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from flins.core.levels import Mode
 from flins.core.modes import ModeEvent
+from flins.core.policy_schema import ProfilePolicy
 
 # ------------------------------------------------------------------ command types
 
@@ -206,8 +209,76 @@ def parse_time(phrase: str, now: datetime, tz: ZoneInfo) -> datetime | None:
 # ------------------------------------------------------------------ parse
 
 
-def parse(text: str, *, now: datetime, tz: ZoneInfo) -> Command | ParseError | None:
-    """Parse one message. Returns a command, a ParseError, or None (not a command at all)."""
+_ENTER_BY_MODE = {
+    Mode.WORKING: ModeEvent.ENTER_WORKING,
+    Mode.FOCUS: ModeEvent.ENTER_FOCUS,
+    Mode.AWAY: ModeEvent.ENTER_AWAY,
+}
+_TAIL_START = re.compile(
+    r"\s+(?=(?:till|until|til|untill|upto|up to|to|for|by)\s+\S)"
+    r"|\s+(?=\d+\s*(?:h|hr|hrs|hours?|m|min|mins|minutes?)\b)"
+)
+_LEAD = re.compile(
+    r"^(?:(?:i'?m|i am) (?:in|on) |switch to |turn on |start |enable |activate |go to |"
+    r"put me in |set )"
+)
+_UNTIMED = datetime(2000, 1, 1, tzinfo=ZoneInfo("UTC"))
+
+
+def normalise(text: str) -> str:
+    """Lower-cased, without a leading "FLINS," or trailing "please" / punctuation."""
+    return _normalise(text).lower()
+
+
+def is_fixed_command(phrase: str) -> bool:
+    """True if `phrase` already means something to FLINS other than entering a busy mode
+    (stop, resume, status, I'm done, approvals, a bare yes / no). A mode of your own may not
+    use such a phrase: the kill switch must never be shadowed."""
+    t = normalise(phrase)
+    if t in {"yes", "no", "ok", "okay", "y", "n", "hold", "release"}:
+        return True
+    cmd = parse(t, now=_UNTIMED, tz=ZoneInfo("UTC"))
+    if cmd is None:
+        return False
+    return not (isinstance(cmd, ModeCommand) and cmd.event in _ENTER_BY_MODE.values())
+
+
+def _own_mode(
+    t: str, profiles: Mapping[str, ProfilePolicy], now: datetime, tz: ZoneInfo
+) -> ModeCommand | ParseError | None:
+    """A mode you defined in policy.yaml: one of its phrases, optionally with a time."""
+    phrases: dict[str, str] = {}
+    for name, prof in profiles.items():
+        if prof.base in _ENTER_BY_MODE:
+            for phrase in prof.phrases():
+                phrases.setdefault(phrase, name)
+    if not phrases:
+        return None
+    splits: list[tuple[str, str | None]] = [(t, None)]
+    splits += [(t[: m.start()], t[m.end() :]) for m in _TAIL_START.finditer(t)]
+    for head, time_phrase in splits:
+        found = phrases.get(head) or phrases.get(_LEAD.sub("", head))
+        if found is None:
+            continue
+        name = found
+        until = None
+        if time_phrase is not None:
+            until = parse_time(time_phrase, now, tz)
+            if until is None:
+                return ParseError(f"I didn't understand the time {time_phrase!r}.")
+        return ModeCommand(_ENTER_BY_MODE[profiles[name].base], until=until, profile=name)
+    return None
+
+
+def parse(
+    text: str,
+    *,
+    now: datetime,
+    tz: ZoneInfo,
+    profiles: Mapping[str, ProfilePolicy] | None = None,
+) -> Command | ParseError | None:
+    """Parse one message. Returns a command, a ParseError, or None (not a command at all).
+    `profiles` adds the modes you defined; every fixed command above is matched first."""
     t = _normalise(text).lower()
     if not t:
         return None
@@ -248,6 +319,11 @@ def parse(text: str, *, now: datetime, tz: ZoneInfo) -> Command | ParseError | N
         if until is None:
             return ParseError(f"I didn't understand the time {m.group('time')!r}.")
         return ModeCommand(ModeEvent.EXTEND, until=until)
+
+    if profiles:
+        own = _own_mode(t, profiles, now, tz)
+        if own is not None:
+            return own
 
     head, profile = t, None
     pm = _PROFILE_TAIL.fullmatch(head)
