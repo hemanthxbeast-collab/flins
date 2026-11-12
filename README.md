@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.19.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.20.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4, 5 and 6 done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4, 5, 6 and 7 done).
 
 ## Talk to FLINS
 ```powershell
@@ -262,6 +262,43 @@ self-chat (there, start with "FLINS, ...").
 
 Settings: `assistant.chats` (`enabled`, `max_messages`, `days`, `summarise`).
 
+## Briefings and heads-ups (FLINS speaks first)
+Off until you switch it on in `config/flins.yaml`:
+```yaml
+assistant:
+  proactive:
+    enabled: true
+    morning: "08:00"       # morning briefing; null = none
+    evening: "21:30"       # end-of-day summary; null = none
+```
+While `flins run` is running, FLINS then writes to your self-chat (and says a short version
+when voice is on):
+- **Morning briefing**: what is due today, what is overdue, drafts waiting, and one weather
+  line if the weather tool is on with your usual place.
+- **Evening summary**: done today, still open, tomorrow, and how many messages FLINS handled.
+- **Heads-up**: an hour before a task is due ("Coming up soon: lab report (in 55 minutes)").
+
+It is kept small on purpose:
+
+| Situation | What happens |
+|---|---|
+| You said "stop" | nothing; it comes after "resume" if still within 3 hours |
+| Focus or away (and your own modes on them) | written, not spoken |
+| Quiet hours (23:00 to 07:00 by default) | written, not spoken |
+| More than 6 in a day (`max_per_day`) | dropped |
+| Several deadlines at once | one message |
+| Nothing to say | skipped |
+
+Ask any time, even with it off: "brief me", "how does my day look", "evening summary", or
+```powershell
+uv run flins briefing            # or: uv run flins briefing evening
+```
+These only ever go to you. They are built from your own tasks and from counts: no AI model,
+and nothing a contact wrote. Reminders you set yourself are separate and not capped.
+
+Settings: `assistant.proactive` (`enabled`, `morning`, `evening`, `nudges`, `nudge_minutes`,
+`quiet_hours`, `max_per_day`, `speak`).
+
 ## Modes of your own, hold, and topics per person
 **Your own modes.** Besides working, focus and away you can define modes in
 `config/policy.yaml`, each a variant of one of those three with its own phrases, holding
@@ -513,4 +550,4 @@ npm --prefix wa-sidecar test
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
 [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core), 2 (memory), L (local
-models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) 5 (conversational voice) and 6 (asking about a chat, your own modes, hold, topics per person) are done; next is phase 7 (proactive: briefings, nudges, end-of-day summary).
+models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) 5 (conversational voice) and 6 (asking about a chat, your own modes, hold, topics per person) and 7 (briefings and heads-ups) are done; next is phase 8 (Hermes: asking for a skill that doesn't exist yet).

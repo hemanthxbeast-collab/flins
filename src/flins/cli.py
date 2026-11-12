@@ -52,6 +52,7 @@ from flins.wiring import (
     ensure_local,
     make_assistant,
     make_brain,
+    make_proactive,
     make_skills,
     memory_store,
     open_assistant,
@@ -459,6 +460,7 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
         print("Ctrl+C to stop.")
 
         reminders = task_store(settings, conn)
+        proactive = make_proactive(settings, conn, approvals)
 
         async def tick_forever() -> None:
             assert modes is not None
@@ -474,6 +476,14 @@ async def _run_live(settings: Settings, spawn: bool, *, brain: bool, voice: bool
                         clock.now(),
                         paused=state_now == Mode.PAUSED,
                         focus=state_now == Mode.FOCUS,
+                        note=notifier.note,
+                        say=voice_loop.say if voice_loop is not None else None,
+                    ):
+                        print(f"   FLINS: {line}")
+                    # Briefings and deadline heads-ups (off unless you switched them on).
+                    for line in await proactive.tick(
+                        clock.now(),
+                        mode=state_now,
                         note=notifier.note,
                         say=voice_loop.say if voice_loop is not None else None,
                     ):
@@ -1034,6 +1044,31 @@ def cmd_plans(root: Path | None, action: str, rest: list[str]) -> int:
     return asyncio.run(_plans(settings, action, rest))
 
 
+async def _briefing(settings: Settings, kind: str) -> int:
+    conn = await connect(settings.db_path)
+    await migrate(conn)
+    try:
+        proactive = make_proactive(settings, conn, ApprovalService(conn, settings.policy))
+        brief = await proactive.briefing(
+            "evening" if kind == "evening" else "morning", SystemClock().now()
+        )
+        print(brief.text if brief else "Nothing to report.")
+    finally:
+        await conn.close()
+    cfg = settings.app.assistant.proactive
+    if not cfg.enabled:
+        print("\n(FLINS doesn't send these by itself yet: assistant.proactive.enabled is false.)")
+    return 0
+
+
+def cmd_briefing(root: Path | None, kind: str) -> int:
+    """`flins briefing [morning|evening]`: what FLINS would tell you, right now."""
+    settings = _load(root)
+    if settings is None:
+        return 1
+    return asyncio.run(_briefing(settings, kind))
+
+
 def cmd_tools(root: Path | None, action: str, rest: list[str]) -> int:
     """`flins tools`: what FLINS may use to answer you, and a way to try one."""
     settings = _load(root)
@@ -1515,6 +1550,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tsk.add_argument("action", nargs="?", default="list", choices=["list", "add", "done", "delete"])
     tsk.add_argument("rest", nargs="*")
+    brf = sub.add_parser("briefing", help="your day so far: morning (default) or evening")
+    brf.add_argument("kind", nargs="?", default="morning", choices=["morning", "evening"])
     tls = sub.add_parser("tools", help='tools FLINS can use: list, run <name> "<input>"')
     tls.add_argument("action", nargs="?", default="list", choices=["list", "run"])
     tls.add_argument("rest", nargs="*")
@@ -1603,6 +1640,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_memory(root, args.action, args.rest)
     if args.command == "tasks":
         return cmd_tasks(root, args.action, args.rest)
+    if args.command == "briefing":
+        return cmd_briefing(root, args.kind)
     if args.command == "tools":
         return cmd_tools(root, args.action, args.rest)
     if args.command == "plans":

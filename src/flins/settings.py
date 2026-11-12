@@ -6,10 +6,10 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from flins.core.policy_schema import Policy, load_policy
@@ -240,6 +240,32 @@ class ChatsConfig(_Strict):
     summarise: bool = True
 
 
+_HHMM = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
+
+
+class ProactiveConfig(_Strict):
+    """FLINS speaking first: briefings and deadline nudges (docs/milestones/J7.md). To you
+    only, never to contacts. Off until you switch it on."""
+
+    enabled: bool = False
+    morning: str | None = Field(default="08:00", pattern=_HHMM)  # null = no morning briefing
+    evening: str | None = Field(default="21:30", pattern=_HHMM)  # null = no evening summary
+    nudges: bool = True  # a heads-up before a task is due
+    nudge_minutes: int = Field(default=60, ge=5, le=720)
+    # Written but not spoken between these times. [] = never quiet.
+    quiet_hours: list[Annotated[str, Field(pattern=_HHMM)]] = Field(
+        default_factory=lambda: ["23:00", "07:00"]
+    )
+    max_per_day: int = Field(default=6, ge=1, le=20)  # everything FLINS starts by itself
+    speak: bool = True  # also say a short version (voice on, normal or working mode)
+
+    @model_validator(mode="after")
+    def _two_times(self) -> ProactiveConfig:
+        if len(self.quiet_hours) not in (0, 2):
+            raise ValueError("quiet_hours needs a start and an end, e.g. ['23:00', '07:00']")
+        return self
+
+
 class AssistantConfig(_Strict):
     """The conversational core (docs/JARVIS_ARCHITECTURE.md). Personality lives here, not in
     code: FLINS's name, how it talks, and when it may speak up in your self-chat."""
@@ -267,6 +293,7 @@ class AssistantConfig(_Strict):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     chats: ChatsConfig = Field(default_factory=ChatsConfig)
+    proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
 
 
 class AppConfig(_Strict):

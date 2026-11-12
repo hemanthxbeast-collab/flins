@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.20.0: phase 7, proactive (2026-11-13)
+- **Morning briefing, evening summary, deadline heads-up.** FLINS can now speak first, to
+  you only: a self-chat note and, when allowed, a short spoken line. Off by default
+  (`assistant.proactive.enabled`).
+- **Interrupt policy in code**: nothing while paused; written but not spoken in focus, away
+  and quiet hours; a hard daily cap (6); several deadlines become one message; empty
+  briefings are skipped; a briefing more than 3 hours late is skipped.
+- **At most once**: each briefing or heads-up is logged before it is written (table
+  `proactive_log`, migration 0016), so a failure can't repeat it every second.
+- **No model, no contact text**: built from your tasks and from counts. An optional weather
+  line comes from the weather tool's numbers when that tool is on.
+- **On demand**: "brief me", "how does my day look", "evening summary", `flins briefing`.
+  These ignore the cap and quiet hours and work with the feature off.
+- Heads-ups skip tasks set at short notice and tasks already done.
+- Audit rows `assistant.proactive`: kind, outcome, spoken. No titles.
+- Prompt `chat_v9`.
+- Live, throwaway database, made-up tasks, clock moved through a day: one briefing, a
+  silent heads-up in focus, a spoken one while working, nothing while paused, the evening
+  summary after resume.
+- Tests: 1207 Python (38 new). Eval unchanged.
+
 ## 0.19.0: phase 6b, your own modes, hold, topics (2026-11-13)
 - **Modes you define.** A profile in `policy.yaml` can have `say` phrases, a
   `default_duration`, a `holding_template` and an `interrupt_threshold`. The example policy

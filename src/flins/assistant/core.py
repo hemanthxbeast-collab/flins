@@ -28,6 +28,7 @@ from flins.assistant.memory import MemoryStore, NoMemory, SqlMemory, is_secret
 from flins.assistant.memory_commands import MemoryCommands
 from flins.assistant.models import SOURCES, MemoryItem, Reply, Route
 from flins.assistant.plans import PlanCommands
+from flins.assistant.proactive import Proactive
 from flins.assistant.task_commands import TaskCommands
 from flins.assistant.tasks import TaskStore
 from flins.assistant.tools import Tool, ToolBox, result_block
@@ -122,6 +123,7 @@ class Assistant:
         task_commands: TaskCommands | None = None,
         plan_commands: PlanCommands | None = None,
         chat_commands: ChatCommands | None = None,
+        proactive: Proactive | None = None,
         tools: ToolBox | None = None,
     ) -> None:
         self._commands = commands
@@ -141,6 +143,7 @@ class Assistant:
         self._task_cmds = task_commands
         self._plan_cmds = plan_commands
         self._chat_cmds = chat_commands
+        self._proactive = proactive
         self._tools = tools if tools is not None and cfg.tools.enabled else None
         self._last_used: dict[str, list[MemoryItem]] = {}  # per channel: memories last shown
         self._last_suggest: datetime | None = None
@@ -198,6 +201,9 @@ class Assistant:
                 )
                 if found is not None:
                     said, kept = found.text, found.stored
+            if said is None and self._proactive is not None:
+                stage = "briefing command"
+                said = await self._proactive.handle(text, source, now, addressed=addressed)
             if said is not None:
                 reply = Reply(said, "command", [stage], stored=kept)
                 await self._finish(text, source, now, reply, started)
@@ -455,6 +461,7 @@ class Assistant:
             ["task command"],
             ["plan command"],
             ["chat command"],
+            ["briefing command"],
         )
         stored_as = "memory" if direct else reply.route
         await self._store.add(

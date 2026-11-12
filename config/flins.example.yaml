@@ -123,6 +123,15 @@ assistant:
     max_messages: 12            # recent messages it reads out or summarises
     days: 7                     # how far back it looks
     summarise: true             # false = never send a chat to an AI model for a summary
+  proactive:                    # FLINS speaks first: briefings and deadline heads-ups, to
+    enabled: false              # you only (self-chat note + a spoken line). Off by default.
+    morning: "08:00"            # morning briefing; null = none
+    evening: "21:30"            # end-of-day summary; null = none
+    nudges: true                # a heads-up before a task is due
+    nudge_minutes: 60
+    quiet_hours: ["23:00", "07:00"]   # written but not spoken in this window
+    max_per_day: 6              # hard cap on what FLINS starts by itself
+    speak: true                 # needs voice on; never in focus / away / paused
   voice_big_models: false       # true = spoken reasoning / coding questions may use the
                                 # bigger models (sensible with local models; slower to answer)
   reasoning:                    # when to use the `reason` model instead of `chat`

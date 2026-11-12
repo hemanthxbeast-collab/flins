@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import aiosqlite
@@ -17,6 +17,7 @@ from flins.assistant.core import Assistant, Commands
 from flins.assistant.memory import CombinedMemory, ProfileMemory, SqlMemory
 from flins.assistant.memory_commands import MemoryCommands
 from flins.assistant.plans import PlanCommands, Planner, PlanStore
+from flins.assistant.proactive import Proactive
 from flins.assistant.task_commands import TaskCommands
 from flins.assistant.tasks import TaskStore
 from flins.assistant.tools import Tool, ToolBox
@@ -335,6 +336,49 @@ def chat_commands(
     )
 
 
+def _weather_line(settings: Settings) -> Callable[[], Awaitable[str | None]] | None:
+    """One weather line for the morning briefing, if you switched the weather tool on and set
+    your usual place. Numbers from Open-Meteo, formatted by code."""
+    box = tool_box(settings)
+    tool = box.get("weather")
+    if tool is None or not settings.app.assistant.tools.online.weather_place:
+        return None
+
+    async def line() -> str | None:
+        ran = await box.run(tool, "", SystemClock().now())
+        if not ran.result.ok:
+            return None
+        rows = ran.result.text.splitlines()
+        now = next((r[5:] for r in rows if r.startswith("Now: ")), None)
+        today = next((r.split(": ", 1)[1] for r in rows if r.startswith("Today")), None)
+        parts = [f"now {now.rstrip('.')}" if now else "", f"today {today}" if today else ""]
+        return "; ".join(p for p in parts if p) or None
+
+    return line
+
+
+def make_proactive(
+    settings: Settings, conn: aiosqlite.Connection, approvals: ApprovalService | None
+) -> Proactive:
+    """Briefings and nudges (phase 7). The scheduler only uses it when it is switched on;
+    "brief me" works either way."""
+    pending = None
+    if approvals is not None:
+        service = approvals
+
+        async def count(now: datetime) -> int:
+            return len(await service.pending(now))
+
+        pending = count
+    return Proactive(
+        conn,
+        task_store(settings, conn),
+        settings.app.assistant.proactive,
+        pending_drafts=pending,
+        weather=_weather_line(settings),
+    )
+
+
 def make_assistant(
     settings: Settings,
     conn: aiosqlite.Connection,
@@ -376,6 +420,7 @@ def make_assistant(
         task_commands=TaskCommands(tasks, commands),
         plan_commands=PlanCommands(PlanStore(conn, tasks), tasks, commands, planner),
         chat_commands=chat_commands(settings, conn, commands, gateway, audit),
+        proactive=make_proactive(settings, conn, approvals),
         tools=tool_box(settings),
     )
 

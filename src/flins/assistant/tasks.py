@@ -177,6 +177,15 @@ class TaskStore:
         ) as cur:
             return [self._task(r) for r in await cur.fetchall()]
 
+    async def done_between(self, start: datetime, end: datetime) -> list[Task]:
+        """Tasks you completed in [start, end), oldest first."""
+        async with self._conn.execute(
+            "SELECT * FROM tasks WHERE status = 'done' AND completed_at >= ? AND completed_at < ? "
+            "ORDER BY completed_at",
+            (to_iso(start), to_iso(end)),
+        ) as cur:
+            return [self._task(r) for r in await cur.fetchall()]
+
     async def find(self, words: str) -> list[Task]:
         """Open tasks matching `words` (a task number, the title, or most of its words)."""
         q = words.strip().strip(".!?\"'").lower()

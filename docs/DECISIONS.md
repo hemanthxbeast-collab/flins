@@ -2,6 +2,27 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 7: proactive (2026-11-13)
+- **Off by default.** The stated risk is spam, and an assistant that starts talking unasked
+  is a change of character. One line switches it on.
+- **Deterministic text.** A briefing is a list of the owner's own tasks and some counts.
+  A model would add tone and risk (invented items) for no information. It also means the
+  feature works with no AI provider at all.
+- **Counts only for messages.** The evening summary says how many messages were handled,
+  never what they said: contact text stays out of anything FLINS volunteers.
+- **Log before deliver.** At-most-once was chosen over at-least-once: a missed briefing is a
+  small loss, a briefing repeated every second (the ticker's period) is not.
+- **Paused does not use up the briefing.** If you say "resume" within 3 hours it still
+  comes; later it is skipped as stale.
+- **Reminders are not capped.** A reminder is something the owner asked for at a set time;
+  the cap is for what FLINS decides to say by itself.
+- **Heads-up rule.** Only when the task was created at least twice the lead time before it
+  is due, so "remind me in 20 minutes" doesn't produce an instant "coming up soon".
+- **Speak only in normal or working mode.** Away means nobody is there to hear; focus (and
+  modes built on it, like dnd) means don't. Text still arrives.
+- **Open:** deadline nudges for plan steps as a group, and a weekly review, would fit here
+  later.
+
 ## Phase 6b: your own modes, hold, topics (2026-11-13)
 - **New modes are profiles, not new states.** The architecture said "more modes (DND, SLEEP,
   TRAVEL, custom)". Adding states would touch the transition table, the database CHECK, the
