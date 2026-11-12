@@ -2,6 +2,31 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 6b: your own modes, hold, topics (2026-11-13)
+- **New modes are profiles, not new states.** The architecture said "more modes (DND, SLEEP,
+  TRAVEL, custom)". Adding states would touch the transition table, the database CHECK, the
+  expiry and restart rules, all covered by invariants 3 and 4. A profile on top of WORKING /
+  FOCUS / AWAY gives the same behaviour to the user with none of that risk, and makes
+  "custom" free.
+- **"HOLD" read as a per-contact pause.** The architecture names it without defining it.
+  Chosen meaning: stop all replies to one person for a while. The other reading (a new
+  level between NOTIFY and DRAFT) would add a rung to the autonomy ladder for little gain.
+  A hold is a NOTIFY ceiling, so it can only lower.
+- **An emergency from a held contact gets no automatic acknowledgement** but does interrupt
+  the owner. "Send them nothing" is what the owner asked for; the alert is what keeps it safe.
+- **Hold and release need no confirmation; removing a topic limit is CLI-only.** Putting on
+  a hold only removes replies. Releasing restores what the policy already allowed. Topic
+  limits are standing configuration, so loosening them is not a voice command.
+- **Plain "hold X" is a command only if X is a contact.** "Hold the door" stays ordinary
+  text; "hold X's messages" with no such contact says so.
+- **The example modes are not added to the user's policy automatically.** Their holding
+  replies go to real people; the owner should read and edit the wording first.
+- **`flins eval` against a policy without these modes** skips those cases and says how many,
+  rather than failing. The CI gate uses the example policy and runs all 225.
+- **Seen in the live run, not changed:** the debrief lists an empty-text row per message in
+  my test harness because it called the pipeline twice; the product path processes each
+  burst once.
+
 ## Phase 6a: your chats (2026-11-12)
 - **Split phase 6.** 6a adds a read-only view and a reply path that already existed. 6b
   (modes, topic permissions, hold) changes how incoming messages are decided, so its eval

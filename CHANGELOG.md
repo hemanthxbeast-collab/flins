@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.19.0: phase 6b, your own modes, hold, topics (2026-11-13)
+- **Modes you define.** A profile in `policy.yaml` can have `say` phrases, a
+  `default_duration`, a `holding_template` and an `interrupt_threshold`. The example policy
+  ships `dnd`, `sleep` and `travel`. They are still WORKING / FOCUS / AWAY underneath, so
+  expiry, restart, cancel and the kill switch are unchanged.
+- **A phrase can never shadow a fixed command**: fixed commands are matched first, and a
+  policy that uses "stop", "status", "I'm done", "yes" ... as a phrase is refused at load.
+  Durations must be positive and at most 12 hours; templates must exist.
+- **Hold**: "hold Rahul till 6" / "release Rahul" / "who is on hold". A NOTIFY ceiling in
+  `decide()`: nothing is sent, urgent messages still alert. Always ends (given time, else the
+  current mode's end, else 4 h; 12 h at most). Table `contact_holds` (migration 0015).
+- **Topics per person**: `flins contacts topics "<name>" [all | topic ...]` sets the
+  existing `allowed_categories` rule (other topics become drafts).
+- Read-backs name your mode ("Sleep mode on until 22:00").
+- **Eval grew first**: 162 → 225 cases (your modes, holds, topic lists, each with fooled
+  triage / leaky draft / outage variants). 0 unsafe, none over-blocked. `flins eval` skips
+  and reports cases for modes your policy doesn't define.
+- A test checks, over every mode × tier × category, that a profile, a hold or a topic list
+  never raises the level, and that NOTIFY-only categories stay NOTIFY.
+- Prompt `chat_v8` (knows the new phrases).
+- Live, example policy, made-up contacts, throwaway database: sleep mode sent its own
+  holding reply; a held contact got nothing, including for "urgent" (which still alerted);
+  after release they were handled normally.
+- Tests: 1169 Python (71 new).
+
 ## 0.18.0: phase 6a, your chats (2026-11-12)
 - **"What did Rahul say?"** reads the last messages of that chat out, word for word, with no
   AI model. Also "any messages from mom?", "read Rahul's chat".

@@ -76,4 +76,5 @@ shows it. (The column and the rule existed since M2; there was no way to set it.
 ## Acceptance
 - Eval grows from 162 to 200+ cases, still 0 unsafe, no good case over-blocked.
 - `ruff`, `mypy`, `pytest`.
-- Live on a throwaway database with made-up contacts: phrases, hold, topics end to end.
+- Live on a throwaway database with made-up contacts: done 2026-11-13 (modes, hold and
+  release through the real pipeline; topics through the CLI test).

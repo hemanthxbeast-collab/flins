@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.18.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.19.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4, 5 and 6a done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4, 5 and 6 done).
 
 ## Talk to FLINS
 ```powershell
@@ -262,6 +262,43 @@ self-chat (there, start with "FLINS, ...").
 
 Settings: `assistant.chats` (`enabled`, `max_messages`, `days`, `summarise`).
 
+## Modes of your own, hold, and topics per person
+**Your own modes.** Besides working, focus and away you can define modes in
+`config/policy.yaml`, each a variant of one of those three with its own phrases, holding
+reply and length. The example file has three; copy them (and their three templates) into
+your `policy.yaml` and edit the wording, since these replies go to real people:
+
+```yaml
+profiles:
+  sleep:
+    base: AWAY
+    say: ["sleep mode", "i'm going to sleep", "good night flins"]
+    default_duration: 8h          # at most 12h, like every mode
+    holding_template: sleep
+    interrupt_threshold: 3        # only emergencies get through
+templates:
+  sleep: "Hey {name}! {user} is asleep and will see this in the morning. ... {signature}"
+```
+Then say "sleep mode", "travel mode till 9pm" or "dnd for 2 hours", anywhere you can say
+"working mood till 6". A phrase can't be an existing command such as "stop" or "status":
+FLINS refuses to load such a policy.
+
+**Hold one person.** "hold Rahul", "hold Rahul till 6", "release Rahul", "who is on hold".
+While someone is on hold FLINS sends them nothing at all, not even the holding reply; what
+they write waits in your summary and an urgent message still alerts you. A hold ends at the
+time you give, else when your current mode ends, else after 4 hours (12 at most).
+
+**Topics per person.** Limit what FLINS may answer by itself for one contact:
+```powershell
+uv run flins contacts topics "Rahul" greeting_smalltalk availability_query
+uv run flins contacts topics "Rahul"        # show
+uv run flins contacts topics "Rahul" all    # remove the limit
+```
+Other topics from that person become drafts for your approval.
+
+None of the three can make FLINS do more than before: each only adds a limit. Money, codes,
+health, legal and conflict messages are still only ever shown to you.
+
 ## Sending
 Sending stays off until you turn it on yourself in `config/policy.yaml`:
 ```yaml
@@ -476,4 +513,4 @@ npm --prefix wa-sidecar test
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
 [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core), 2 (memory), L (local
-models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) 5 (conversational voice) and 6a (asking about and replying to a chat) are done; next is 6b (more modes, per-contact topics, hold).
+models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) 5 (conversational voice) and 6 (asking about a chat, your own modes, hold, topics per person) are done; next is phase 7 (proactive: briefings, nudges, end-of-day summary).
