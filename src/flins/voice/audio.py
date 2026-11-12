@@ -20,7 +20,9 @@ class Recording:
 
 
 class Recorder(Protocol):
-    async def record(self, cancel: asyncio.Event | None = None) -> Recording: ...
+    async def record(
+        self, cancel: asyncio.Event | None = None, *, start_timeout_s: float | None = None
+    ) -> Recording: ...
 
 
 class MicRecorder:
@@ -42,19 +44,24 @@ class MicRecorder:
         self._start_timeout_s = start_timeout_s
         self._min_level = min_level
 
-    async def record(self, cancel: asyncio.Event | None = None) -> Recording:
+    async def record(
+        self, cancel: asyncio.Event | None = None, *, start_timeout_s: float | None = None
+    ) -> Recording:
+        """`start_timeout_s`: how long to wait for you to start speaking (default: the
+        recorder's own setting)."""
         stop = threading.Event()
+        wait = self._start_timeout_s if start_timeout_s is None else start_timeout_s
         loop = asyncio.get_running_loop()
         if cancel is not None:
             watcher = asyncio.create_task(cancel.wait())
             watcher.add_done_callback(lambda _: stop.set())
         try:
-            return await loop.run_in_executor(None, self._record_blocking, stop)
+            return await loop.run_in_executor(None, self._record_blocking, stop, wait)
         finally:
             if cancel is not None:
                 watcher.cancel()
 
-    def _record_blocking(self, stop: threading.Event) -> Recording:
+    def _record_blocking(self, stop: threading.Event, start_timeout_s: float) -> Recording:
         import numpy as np
         import sounddevice as sd
 
@@ -86,7 +93,7 @@ class MicRecorder:
                     last_voice = now
                 if speaking and now - last_voice >= self._silence_s:
                     break
-                if not speaking and now - started_at >= self._start_timeout_s:
+                if not speaking and now - started_at >= start_timeout_s:
                     break
                 if now - started_at >= self._max_s:
                     break

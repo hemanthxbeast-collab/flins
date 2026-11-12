@@ -2,6 +2,30 @@
 
 Short records of choices made while building. Newest first.
 
+## Phase 5: conversational voice (2026-11-12)
+- **Follow-up only after a question by default.** Listening after every answer feels most
+  natural but opens the microphone to whatever is said in the room next. `question` mode
+  covers the case that hurt (a second key press just to say "yes"); `always` is a setting.
+- **Barge-in by hotkey, not by voice.** Stopping FLINS by speaking over it needs echo
+  cancellation, or it interrupts itself from the speakers. The microphone stays ignored while
+  it talks; the hotkey is reliable.
+- **SAPI directly instead of pyttsx3.** Tried first: pyttsx3's `stop()` does cut speech, but
+  the next one or two sentences are then silently dropped (measured). Driving `SAPI.SpVoice`
+  with async speak + purge stops in 0.4 to 0.7 s and speaks normally afterwards. `comtypes`
+  is already installed as pyttsx3's own dependency on Windows, so nothing new was added; if
+  it can't be loaded, FLINS falls back to pyttsx3 without mid-sentence stop.
+- **Two-model wake word.** Whisper `tiny` is cheap enough to run on every burst but mishears
+  ordinary words as "FLINS". Requiring the main model to agree costs 0.3 s on the GPU only
+  when the small model fired, and gives a better transcript of an inline command.
+- **The parked speech crash was not in FLINS.** The `av.open(... metadata_errors)` error came
+  from decoding an audio *file* in a test script. FLINS passes microphone samples directly
+  and never uses that path; GPU recognition worked as built in 0.13.0.
+- **`max` on a CPU downgrades to `small`** unless `stt_model` is set explicitly: a large model
+  on the CPU takes many seconds per sentence, which looks like a hang.
+- **Open:** streaming the answer sentence by sentence (speak while the model still writes)
+  would cut the wait on long answers; needs streaming in the LLM gateway. The slow part of a
+  voice turn is now the language model, not speech recognition.
+
 ## Phase 4b: online tools (2026-11-12)
 - **Off by default.** These are the first tools whose input leaves the PC, so switching them on
   is the user's decision, like approving folders for the file tools.

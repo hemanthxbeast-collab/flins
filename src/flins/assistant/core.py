@@ -150,6 +150,11 @@ class Assistant:
     def store(self) -> ConversationStore:
         return self._store
 
+    def awaiting(self, source: str) -> bool:
+        """True while FLINS waits for your yes/no or an answer on this channel (voice uses it
+        to keep listening without the hotkey)."""
+        return self._commands.awaiting(source)
+
     async def handle_text(self, text: str, *, source: str) -> str | None:
         """Drop-in for the old router interface (voice loop, self-chat listener)."""
         return (await self.handle(text, source=source)).text

@@ -11,7 +11,13 @@ from flins.core.intents import contact_names
 from flins.settings import Settings
 from flins.voice.audio import MicRecorder
 from flins.voice.loop import VoiceLoop, _Router
-from flins.voice.stt import PRESETS, WhisperSTT, gpu_available
+from flins.voice.stt import (
+    CPU_FALLBACK_MODEL,
+    GPU_ONLY_MODELS,
+    PRESETS,
+    WhisperSTT,
+    gpu_available,
+)
 from flins.voice.tts import TTS, PiperTTS, PrintTTS, SapiTTS
 
 INSTALL_HINT = "Voice isn't installed. Run: uv sync --extra voice"
@@ -54,6 +60,8 @@ def make_stt(settings: Settings) -> WhisperSTT:
     device = v.stt_device
     if device == "auto":
         device = "cuda" if gpu_available() else "cpu"
+    if device == "cpu" and v.stt_model is None and model in GPU_ONLY_MODELS:
+        model = CPU_FALLBACK_MODEL  # a large model on the CPU takes many seconds per sentence
     return WhisperSTT(
         v.stt_model or model,
         device=device,
@@ -79,7 +87,16 @@ def make_loop(
         signature=settings.policy.user.signature,
         announce=announce,
         hint_source=_names_hint(conn) if conn is not None else None,
+        follow_up=v.follow_up,
+        follow_up_s=v.follow_up_s,
+        awaiting=_awaiting(router),
     )
+
+
+def _awaiting(router: object) -> Callable[[], bool] | None:
+    """True while FLINS waits for your spoken yes/no (the assistant core knows)."""
+    check = getattr(router, "awaiting", None)
+    return (lambda: bool(check("voice"))) if callable(check) else None
 
 
 def _names_hint(conn: aiosqlite.Connection) -> Callable[[], Awaitable[str]]:

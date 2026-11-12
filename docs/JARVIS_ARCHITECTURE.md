@@ -6,7 +6,7 @@ and the git history. `docs/SPEC.md` stays the source of truth for the WhatsApp s
 This document describes how FLINS grows from a messaging assistant into one personal assistant
 **without a rewrite**.
 
-**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3 (tasks and reminders 0.13.0, planning 0.14.0; [milestones/J3.md](milestones/J3.md), [J3b.md](milestones/J3b.md)) and phase 4 (tools 0.15.0, online tools 0.16.0; [J4.md](milestones/J4.md), [J4b.md](milestones/J4b.md)). Next: phase 5 (voice).
+**Status:** built: phase 1 (assistant core, 0.10.0), phase 2 (memory, 0.11.0), phase L (local models, 0.12.0) and phase 3 (tasks and reminders 0.13.0, planning 0.14.0; [milestones/J3.md](milestones/J3.md), [J3b.md](milestones/J3b.md)) and phase 4 (tools 0.15.0, online tools 0.16.0; [J4.md](milestones/J4.md), [J4b.md](milestones/J4b.md)) and phase 5 (conversational voice, 0.17.0; [J5.md](milestones/J5.md)). Next: phase 6 (WhatsApp autonomy).
 
 ## 1. Where FLINS is today
 
@@ -34,7 +34,7 @@ This document describes how FLINS grows from a messaging assistant into one pers
 | Contact trust (§12) | Tiers, per-contact max level, allowed categories, never-mention, tone |
 | Earned autonomy (§13) | Per-contact opt-in + ≥20 accepted drafts + ≤10% changed; safety overrides it |
 | Approvals (§14) | Expiring approvals by dashboard, self-chat (`y3`), voice; all audited |
-| Voice (§15) | Push-to-talk, Whisper tuned for Indian English, SAPI / Piper, optional wake word |
+| Voice (§15) | Push-to-talk, Whisper tuned for Indian English (large model on the GPU), SAPI / Piper, follow-up listening, barge-in, wake word confirmed by two models |
 | Skills (§19, §21) | Manifest permissions, subprocess sandbox, hash-pinned approval, no send permission |
 | Hermes (§20) | `flins skilldev` MCP server, review page, generated → validated → tested → approved |
 | Kill switch (§29) | "stop" by voice / self-chat / CLI / dashboard → PAUSED, queued sends cancelled |

@@ -3,9 +3,10 @@
 `openwakeword` can't be installed on Python 3.13 and has no "FLINS" model, so this uses what
 FLINS already has. A mic listener wakes only on speech (loudness), cuts short bursts (up to 4
 s), and Whisper `tiny` transcribes each one locally. If it starts with "FLINS" (or a sound-alike),
-FLINS listens for your command; "FLINS, status" works in one breath. Audio is never saved, and
-nothing leaves the PC. While FLINS is talking or listening, the mic is ignored, so it can't
-wake itself.
+FLINS listens for your command; "FLINS, status" works in one breath. To cut false wakes, the
+main speech model then checks the same audio and must hear "FLINS" too (phase 5). Audio is
+never saved, and nothing leaves the PC. While FLINS is talking or listening, the mic is
+ignored, so it can't wake itself.
 """
 
 from __future__ import annotations
@@ -134,13 +135,18 @@ class WakeWord:
         *,
         announce: Callable[[str], None] = print,
         cooldown_s: float = 1.0,
+        confirm: STT | None = None,
     ) -> None:
         self._source = source
         self._stt = stt
         self._voice = voice
         self._announce = announce
         self._cooldown_s = cooldown_s
+        # Phase 5: the small model only *spots* a possible wake word. When a better model is
+        # given, it must hear the wake word too, and its words are the command.
+        self._confirm = confirm
         self.wakes = 0
+        self.rejected = 0  # the small model heard "FLINS", the better one didn't
 
     async def run(self) -> None:
         while True:
@@ -159,6 +165,12 @@ class WakeWord:
         rest = match_wake(transcript.text)
         if rest is None or v.busy:
             return False
+        if self._confirm is not None:
+            second = await self._confirm.transcribe(burst.audio, WAKE_HINT)
+            rest = match_wake(second.text)
+            if rest is None or v.busy:
+                self.rejected += 1
+                return False
         self.wakes += 1
         if rest:
             await v.command(rest, burst.end)  # "FLINS, stop" / "FLINS, working mood till 6"

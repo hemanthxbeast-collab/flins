@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.17.0: phase 5, conversational voice (2026-11-12)
+- **Speech recognition on the GPU**: `accuracy: max` + `stt_device: auto`. Measured here:
+  0.3 s per sentence (CPU model: 2.0 s), 2.1 GB video memory, five of five test sentences
+  exact. `max` without a GPU uses the small CPU model instead of a large one. The model is
+  warmed up at start so the first sentence is fast.
+- **Follow-up listening**: after FLINS asks a question or is waiting for yes / no, it listens
+  again without the hotkey (low beep). Silence or "thanks" ends it. Limited to 6 in a row.
+  `voice.follow_up: question | always | off`, `voice.follow_up_s`.
+- **Barge-in**: the hotkey while FLINS is talking stops it (about half a second) and it
+  listens. The Windows voice now goes through SAPI directly so it can be cut off
+  mid-sentence, with pyttsx3 as fallback; Piper can be stopped too.
+- **Wake word**: the main speech model must also hear "FLINS" before it wakes, and its words
+  are used as the command (`voice.wake_confirm`). The spotter model always runs on the CPU.
+- A spoken confirmation now completes from one key press: "note down buy milk" → "Add this
+  to your notes ...? Say yes or no." → "yes".
+- Start-up line shows whether speech runs on `cuda` or `cpu`.
+- Tests: 999 Python (24 new), 11 Node. Eval unchanged: 0 unsafe of 162.
+- Not verified here: a real microphone and audible output (checked silently with generated
+  speech clips and the Windows voice at volume 0).
+
 ## 0.16.0: phase 4b, online tools (2026-11-12)
 - **Three tools that go online, off by default**: `weather` (Open-Meteo: now and three days),
   `wikipedia` (an article's introduction) and `github` (read-only: repository summary, open

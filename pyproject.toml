@@ -1,6 +1,6 @@
 [project]
 name = "flins"
-version = "0.16.0"
+version = "0.17.0"
 description = "FLINS: local-first personal voice + WhatsApp assistant"
 readme = "README.md"
 requires-python = ">=3.12"

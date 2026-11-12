@@ -656,9 +656,17 @@ async def _start_voice(
         "the first time it downloads..."
     )
     await asyncio.get_running_loop().run_in_executor(None, loop._stt.load)  # type: ignore[attr-defined]
+    await asyncio.get_running_loop().run_in_executor(None, loop._stt.warm_up)  # type: ignore[attr-defined]
     hotkey = Hotkey(v.hotkey)
     hotkey.start()
-    print(f"Voice ready: press {v.hotkey.replace('<', '').replace('>', '').title()} and speak.")
+    keys = v.hotkey.replace("<", "").replace(">", "").title()
+    print(
+        f"Voice ready ({getattr(loop._stt, 'device', 'cpu')}): press {keys} and speak. "
+        "Press it while FLINS is talking to interrupt."
+    )
+    if v.follow_up != "off":
+        when = "after every answer" if v.follow_up == "always" else "when FLINS asks you something"
+        print(f"Follow-up: FLINS listens again by itself {when} (short low beep).")
     if v.wake_word:
         await _start_wake_word(settings, loop)
 
@@ -683,12 +691,15 @@ async def _start_wake_word(settings: Settings, loop: Any) -> None:
     from flins.voice.wake import MicBursts, WakeWord
 
     v = settings.app.voice
-    stt = WhisperSTT(v.wake_model, device=v.stt_device, language=v.language or "en", beam_size=1)
+    # The spotter runs on every burst of speech: small and on the CPU, so the GPU stays free.
+    stt = WhisperSTT(v.wake_model, device="cpu", language=v.language or "en", beam_size=1)
     print(f"Wake word: loading '{v.wake_model}' model...")
     await asyncio.get_running_loop().run_in_executor(None, stt.load)
     mic = MicBursts()
     mic.start()
-    wake = WakeWord(mic, stt, loop)
+    main = loop._stt
+    confirm = main if v.wake_confirm and main.model_name != stt.model_name else None
+    wake = WakeWord(mic, stt, loop, confirm=confirm)
     task = asyncio.create_task(wake.run())
     loop.wake_parts = (mic, task)  # stopped with the voice loop
     print('Wake word on: say "FLINS", then your command (or "FLINS, status" in one go).')

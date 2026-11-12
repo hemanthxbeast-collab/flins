@@ -89,6 +89,12 @@ class VoiceConfig(_Strict):
     # nothing saved) and runs a small speech model on each burst of speech.
     wake_word: bool = False
     wake_model: str = "tiny"
+    # Phase 5. The main speech model must also hear "FLINS" before it wakes (fewer false wakes).
+    wake_confirm: bool = True
+    # After FLINS answers, listen again without the hotkey: question = only when it asked you
+    # something ("... Say yes or no."); always = after every answer; off = never.
+    follow_up: Literal["off", "question", "always"] = "question"
+    follow_up_s: float = Field(default=6.0, ge=2, le=15)  # how long it waits for you to start
 
 
 class SkillsConfig(_Strict):

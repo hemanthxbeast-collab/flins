@@ -22,6 +22,7 @@ PRESETS = {
     # an RTX 4060; far too slow on a CPU). The clear choice for accented English.
     "max": ("large-v3-turbo", 5),
 }
+GPU_ONLY_MODELS = ("large-v3-turbo", "large-v3", "large-v2")
 CPU_FALLBACK_MODEL = "small"  # if the GPU can't be used, don't run a large model on the CPU
 
 
@@ -102,6 +103,20 @@ class WhisperSTT:
     @property
     def device(self) -> str:
         return self._device
+
+    def warm_up(self) -> None:
+        """One throwaway run on a second of silence, so your first sentence isn't the slow
+        one (a GPU model takes about a second extra the first time). Never raises."""
+        try:
+            import numpy as np
+
+            self.load()
+            segments, _ = self._model.transcribe(
+                np.zeros(16_000, dtype="float32"), language="en", vad_filter=False, beam_size=1
+            )
+            list(segments)
+        except Exception:  # the real call reports (or works around) the problem
+            return
 
     def _run(self, audio: Any, hint: str | None = None) -> Transcript:
         try:

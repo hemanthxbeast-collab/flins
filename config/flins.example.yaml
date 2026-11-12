@@ -155,6 +155,11 @@ voice:
   speak_alerts: true      # say urgent alerts, expiry warnings and the summary out loud
   wake_word: false        # true = say "FLINS" instead of the hotkey (mic always listening, locally)
   wake_model: tiny        # small speech model used only to spot the wake word
+  wake_confirm: true      # the main speech model must hear "FLINS" too (fewer false wakes)
+  follow_up: question     # after an answer, listen again without the hotkey: question = only
+                          # when FLINS asked you something | always | off
+  follow_up_s: 6          # seconds it waits for you to start speaking in a follow-up
+                          # Interrupt: press the hotkey while FLINS is talking.
 
 # ---------------------------------------------------------------------------------------------
 # Backups (M9). Needs FLINS_BACKUP_PASSPHRASE in .env. `flins backup` any time.

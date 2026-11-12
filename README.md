@@ -3,10 +3,10 @@
 Local-first personal voice assistant that can handle WhatsApp for you while you work.
 Full design: [docs/SPEC.md](docs/SPEC.md). Build instructions for Claude Code: [CLAUDE.md](CLAUDE.md).
 
-**Status:** 0.16.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
+**Status:** 0.17.0. FLINS handles WhatsApp while you're busy (holding replies by itself, real
 answers when you approve), and you can **talk to it** like an assistant: by voice, in your
 "Message yourself" chat, in a terminal, or on the dashboard. It is growing into a full personal
-assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3 and 4 done).
+assistant in phases: [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md) (phases 1, 2, local models, 3, 4 and 5 done).
 
 ## Talk to FLINS
 ```powershell
@@ -205,9 +205,24 @@ Examples: *"I'm in working mood till 6"*, *"what did I miss?"*, *"approve number
 mode is read back first; say **yes** or **no**. The same plain-language commands work typed in your
 self-chat. Settings live under `voice:` in `config/flins.yaml` (model, voice, hotkey, alerts).
 
+**It's a conversation, not one command per key press:**
+- **Follow-up.** When FLINS asks you something ("... Say yes or no.", "Which city?"), you hear
+  a short low beep and it listens again by itself. Just answer. Staying silent, or saying
+  "thanks" or "that's all", ends it. `follow_up: always` listens after every answer;
+  `follow_up: off` goes back to one key press per sentence.
+- **Interrupt.** Press the hotkey while FLINS is talking: it stops and listens to you.
+- **Wake word** (`wake_word: true`): say "FLINS". Two speech models must both hear the word
+  before it wakes, which cuts false wakes.
+
+**Speech recognition on your graphics card** (NVIDIA): set `accuracy: max` and
+`stt_device: auto`. It uses Whisper's large model: about 0.3 s per sentence and much better
+with Indian English and names (the default CPU model takes about 2 s). First run downloads
+1.6 GB; it uses about 2 GB of video memory. Without a usable GPU it falls back to the small
+CPU model by itself.
+
 If it mishears you: speak right after the beep, a little slower, and say names clearly. FLINS
-repeats what it heard when it can't follow. `accuracy: best` uses a bigger model (slower, more
-accurate); `accuracy: fast` is quickest. It knows your contacts' names, so "tell Rahul…" works
+repeats what it heard when it can't follow. `accuracy: max` (GPU) is the most accurate;
+`accuracy: best` is a bigger CPU model (slow); `accuracy: fast` is quickest on a CPU. It knows your contacts' names, so "tell Rahul…" works
 better than "tell my friend…".
 
 ## Sending
@@ -424,4 +439,4 @@ npm --prefix wa-sidecar test
 ## Milestones
 See SPEC §14. Done: **M0**–**M9**. Next come the JARVIS phases in
 [docs/JARVIS_ARCHITECTURE.md](docs/JARVIS_ARCHITECTURE.md): phases 1 (assistant core), 2 (memory), L (local
-models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) are done; next is phase 5 (voice).
+models), 3 (tasks, reminders and planning) and 4 (tools: calculator, dates, notes, files; online: weather, Wikipedia, GitHub) and 5 (conversational voice) are done; next is phase 6 (WhatsApp autonomy).
